@@ -1,0 +1,62 @@
+[package]
+name = "future_line_td"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "future_line_td"
+
+[dependencies]
+bevy = { version = "0.15", default-features = false, features = [
+    "android-native-activity",
+    "android_shared_stdcxx",
+    "animation",
+    "bevy_animation",
+    "bevy_asset",
+    "bevy_audio",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_gilrs",
+    "bevy_gizmos",
+    "bevy_gltf",
+    "bevy_image",
+    "bevy_pbr",
+    "bevy_picking",
+    "bevy_render",
+    "bevy_scene",
+    "bevy_sprite",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_window",
+    "bevy_winit",
+    "bevy_mesh_picking_backend",
+    "bevy_sprite_picking_backend",
+    "bevy_ui_picking_backend",
+    "custom_cursor",
+    "default_font",
+    "hdr",
+    "ktx2",
+    "png",
+    "smaa_luts",
+    "tonemapping_luts",
+    "vorbis",
+    "x11",
+    "zstd",
+    "sysinfo_plugin"
+] }
+rand = "0.8"
+
+[package.metadata.android]
+package_name = "com.example.futurelinetd"
+apk_name = "Future Line TD"
+assets = "assets"
+
+[package.metadata.android.sdk]
+min_sdk_version = 21
+target_sdk_version = 34
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
