@@ -145,6 +145,14 @@ pub struct Bullet {
 #[derive(Component)] pub struct SwitchViewLabel;
 #[derive(Component)] pub struct LivesText;
 
+// === znacky od specialnich vezi ===
+// Curse: creep dostava o `mul` vic poskozeni a nefunguje mu leceni ani aura
+#[derive(Component)] pub struct Cursed { pub mul: f32, pub timer: Timer }
+// Voodoo: cast poskozeni, ktere creep dostane, se prenese na creepy v okruhu
+#[derive(Component)] pub struct VoodooMark { pub share: f32, pub timer: Timer }
+// Illusion: creep jde smerem `dir`, dokud neujde `remaining` (nebo nenarazi)
+#[derive(Component)] pub struct Confused { pub dir: Vec2, pub remaining: f32 }
+
 // obrazovka konce zapasu (VYHRA / PROHRA) a tlacitko zpet do menu
 #[derive(Component)] pub struct GameOverRoot;
 #[derive(Component)] pub struct GameOverMenuButton;

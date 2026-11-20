@@ -25,7 +25,14 @@ struct AttackDef {
 
 // Air / Ground: ktere veze umi strilet do vzduchu (podle MD: Cannon jen zem, Fire L3 Meteor Tower jen zem)
 fn hits_air(kind: u8, level: u32) -> bool {
-    match kind { 2 => false, 4 => level != 3, _ => true }
+    use crate::special::*;
+    match kind { 2 => false, 4 => level != 3, ILLUSION => false, _ => true }
+}
+
+// odolnost creepa vuci druhu veze (tabulka Resist ma jen puvodnich 8 druhu; nove veze = bez odolnosti)
+fn resist_mul(r: Option<&crate::components::Resist>, kind: u8) -> f32 {
+    let k = kind as usize;
+    if k < 8 { r.map_or(1.0, |r| r.dmg_mul[k]) } else { 1.0 }
 }
 
 fn attack_def(kind: u8) -> AttackDef {
@@ -45,6 +52,12 @@ fn attack_def(kind: u8) -> AttackDef {
         6 => AttackDef { speed: 900.0, size: Vec2::new(8.0, 8.0), size_per_level: 0.10, color: Color::srgb(0.3, 0.4, 1.0), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
         // Shock Turret: velmi rychla strela, chain skace az 150 u, kazdy skok o 25 % mene, odhozeni 500 u/s
         7 => AttackDef { speed: 800.0, size: Vec2::new(10.0, 10.0), size_per_level: 0.10, color: Color::srgb(0.95, 0.9, 0.3), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
+        8 => AttackDef { speed: 700.0, size: Vec2::new(6.0, 22.0), size_per_level: 0.10, color: Color::srgb(0.2, 0.9, 0.9), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
+        10 => AttackDef { speed: 500.0, size: Vec2::new(14.0, 14.0), size_per_level: 0.10, color: Color::srgb(0.7, 0.1, 0.1), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
+        11 => AttackDef { speed: 450.0, size: Vec2::new(9.0, 9.0), size_per_level: 0.10, color: Color::srgb(0.75, 0.35, 0.75), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
+        12 => AttackDef { speed: 450.0, size: Vec2::new(9.0, 9.0), size_per_level: 0.10, color: Color::srgb(0.55, 0.2, 0.85), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
+        13 => AttackDef { speed: 420.0, size: Vec2::new(10.0, 10.0), size_per_level: 0.10, color: Color::srgb(1.0, 0.65, 0.9), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
+        14 => AttackDef { speed: 600.0, size: Vec2::new(8.0, 8.0), size_per_level: 0.10, color: Color::srgb(0.9, 0.8, 0.6), image: None, rot_offset: 0.0, hit_radius: 24.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
         _ => AttackDef { speed: 550.0, size: Vec2::new(8.0, 8.0), size_per_level: 0.0, color: Color::srgb(1.0, 1.0, 0.8), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
     }
 }
@@ -63,6 +76,8 @@ pub fn tower_shoot(
         tower.cooldown -= time.delta_secs();
         if tower.cooldown > 0.0 { continue; }
         if mods.map_or(false, |m| m.stun_left > 0.0) { continue; } // omracena vez (stomp Pit Lorda) nestrili
+        if !crate::special::shoots(tower.kind) { continue; } // pasivni veze (Mint, Bell, Geyser...) maji vlastni system
+        let only_air = tower.kind == crate::special::HARPOON; // Harpoon strili jen na letajici
         let t_pos = t_tf.translation.truncate();
         let mut target: Option<Vec2> = None;
         let mut best_dist = f32::MAX;
@@ -72,6 +87,7 @@ pub fn tower_shoot(
         let mut in_range = 0u32;
         for (c_tf, is_air) in creeps.iter() {
             if is_air && !can_air { continue; } // zemni vez nema na letajici cil
+            if only_air && !is_air { continue; }
             let d = t_pos.distance(c_tf.translation.truncate());
             if d < range {
                 in_range += 1;
@@ -158,10 +174,12 @@ pub fn bullet_hit(
     mut bolt_pool: ResMut<crate::systems::effects::BoltPool>,
     grid: Res<crate::resources::CreepGrid>,
     mut bullets: Query<(Entity, &Transform, &mut Bullet, &mut Visibility), Without<Creep>>,
-    mut creeps: Query<&mut crate::components::Health, With<Creep>>,
+    mut creeps: Query<(&mut crate::components::Health, &crate::components::MaxHealth, &Creep, Option<&crate::components::Cursed>, Option<&crate::components::VoodooMark>), With<Creep>>,
     air: Query<(), With<Air>>,
     resists: Query<&crate::components::Resist>,
 ) {
+    use crate::special::*;
+    let mut shares: Vec<(Entity, Vec2, f32)> = Vec::new(); // Voodoo: (oznaceny creep, pozice, poskozeni k rozdeleni okoli)
     let mut frame_dmg: HashMap<Entity, (Vec2, f32, Color)> = HashMap::new(); // 1 cislo na creepa za snimek
     let mut near: Vec<(Entity, Vec2)> = Vec::new(); // znovupouzity buffer - zadna alokace na strelu
     let mut rng = rand::thread_rng();
@@ -170,7 +188,6 @@ pub fn bullet_hit(
         if !bullet.active { continue; } // volny slot z poolu
         if bullet.life.finished() { bullet.active = false; *b_vis = Visibility::Hidden; bullet_pool.free.push(b_ent); continue; }
         let b_pos = b_tf.translation.truncate();
-        let k = (bullet.kind as usize).min(7); // index do Resist.dmg_mul (druh veze)
         // zasah: nejblizsi creep do hit_radius - hleda se jen v okoli (prostorova mrizka)
         near.clear();
         grid.query(b_pos, bullet.hit_radius, &mut near);
@@ -180,16 +197,41 @@ pub fn bullet_hit(
             grid.query(hit_pos, bullet.aoe, &mut near);
             for &(c_ent, c_pos) in near.iter() {
                 if !bullet.hits_air && air.contains(c_ent) { continue; } // splash zemni veze letajici nezasahne
-                if let Ok(mut hp) = creeps.get_mut(c_ent) {
-                    let dmg = bullet.damage * resists.get(c_ent).map_or(1.0, |r| r.dmg_mul[k]); // odolnost podle druhu veze
+                if let Ok((mut hp, _, _, cursed, voodoo)) = creeps.get_mut(c_ent) {
+                    let dmg = bullet.damage * resist_mul(resists.get(c_ent).ok(), bullet.kind) * (1.0 + cursed.map_or(0.0, |c| c.mul)); // odolnost + kletba
                     hp.0 -= dmg;
                     add_frame_dmg(&mut frame_dmg, c_ent, c_pos, dmg, Color::srgb(1.0, 0.4, 0.1));
+                    if let Some(v) = voodoo { shares.push((c_ent, c_pos, dmg * v.share)); }
                 }
             }
-        } else if let Ok(mut hp) = creeps.get_mut(hit_ent) {
-            let dmg = bullet.damage * resists.get(hit_ent).map_or(1.0, |r| r.dmg_mul[k]); // odolnost podle druhu veze
+        } else if let Ok((mut hp, max_hp, creep, cursed, voodoo)) = creeps.get_mut(hit_ent) {
+            let mut dmg = bullet.damage * resist_mul(resists.get(hit_ent).ok(), bullet.kind) * (1.0 + cursed.map_or(0.0, |c| c.mul)); // odolnost + kletba
+            let mut col = Color::srgb(1.0, 0.4, 0.1);
+            if bullet.kind == EXECUTIONER && hp.0 > 0.0 {
+                // % chybejiciho HP navic; pod hranici poprava (bossove nikdy)
+                dmg += (max_hp.0 - hp.0).max(0.0) * executioner_missing_pct(bullet.level);
+                if !creep.is_boss && hp.0 / max_hp.0.max(1.0) < executioner_threshold(bullet.level) { dmg = dmg.max(hp.0); col = Color::srgb(0.9, 0.1, 0.1); }
+            }
             hp.0 -= dmg;
-            add_frame_dmg(&mut frame_dmg, hit_ent, hit_pos, dmg, Color::srgb(1.0, 0.4, 0.1));
+            add_frame_dmg(&mut frame_dmg, hit_ent, hit_pos, dmg, col);
+            if let Some(v) = voodoo { shares.push((hit_ent, hit_pos, dmg * v.share)); }
+        }
+        // znacky specialnich vezi na zasazeneho creepa
+        if let Some(mut ec) = commands.get_entity(hit_ent) {
+            match bullet.kind {
+                HARPOON => { ec.remove::<Air>(); } // srazen na zem: dal musi bludistem
+                CURSE => { ec.insert(crate::components::Cursed { mul: curse_mul(bullet.level), timer: Timer::from_seconds(CURSE_SECS, TimerMode::Once) }); }
+                VOODOO => { ec.insert(crate::components::VoodooMark { share: voodoo_share(bullet.level), timer: Timer::from_seconds(VOODOO_SECS, TimerMode::Once) }); }
+                ILLUSION => {
+                    // nahodny smer (vlevo / vpravo / nahoru / dolu), nahodna vzdalenost podle ranku
+                    let dirs = [Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y];
+                    let dir = dirs[rng.gen_range(0..4)];
+                    let boss = creeps.get(hit_ent).map_or(false, |c| c.2.is_boss);
+                    let dist = illusion_dist(bullet.level) * rng.gen_range(0.5..1.0) * if boss { 0.5 } else { 1.0 };
+                    ec.insert(crate::components::Confused { dir, remaining: dist });
+                }
+                _ => {}
+            }
         }
         // get_entity: creep mohl byt mezitim despawnuty
         if bullet.slow > 0.0 {
@@ -218,8 +260,8 @@ pub fn bullet_hit(
                 let next = near.iter().filter(|(e, _)| !chained.contains(e) && (bullet.hits_air || !air.contains(*e))).min_by(|a, b| a.1.distance_squared(cur_pos).total_cmp(&b.1.distance_squared(cur_pos)));
                 let Some(&(c_ent, c_pos)) = next else { break; };
                 dmg *= bullet.chain_falloff;
-                if let Ok(mut hp) = creeps.get_mut(c_ent) {
-                    let shown = dmg * resists.get(c_ent).map_or(1.0, |r| r.dmg_mul[k]); // odolnost podle druhu veze (dmg se dal snizuje bez ni)
+                if let Ok((mut hp, _, _, _, _)) = creeps.get_mut(c_ent) {
+                    let shown = dmg * resist_mul(resists.get(c_ent).ok(), bullet.kind); // odolnost podle druhu veze (dmg se dal snizuje bez ni)
                     hp.0 -= shown;
                     add_frame_dmg(&mut frame_dmg, c_ent, c_pos, shown, Color::srgb(0.6, 0.9, 1.0));
                     apply_push_stun(&mut commands, c_ent, &bullet, &mut rng, resists.get(c_ent).ok());
@@ -230,6 +272,18 @@ pub fn bullet_hit(
             }
         }
         bullet.active = false; *b_vis = Visibility::Hidden; bullet_pool.free.push(b_ent); // zpet do poolu
+    }
+    // Voodoo: poskozeni oznacenych creepu se prenese na creepy kolem (dal uz se neprenasi)
+    for (src, pos, dmg) in shares {
+        near.clear();
+        grid.query(pos, VOODOO_RADIUS, &mut near);
+        for &(c_ent, c_pos) in near.iter() {
+            if c_ent == src { continue; }
+            if let Ok((mut hp, _, _, _, _)) = creeps.get_mut(c_ent) {
+                hp.0 -= dmg;
+                add_frame_dmg(&mut frame_dmg, c_ent, c_pos, dmg, Color::srgb(0.8, 0.4, 0.8));
+            }
+        }
     }
     // 1 cislo na creepa za snimek (soucet vsech zasahu)
     for (_, (pos, dmg, col)) in frame_dmg {

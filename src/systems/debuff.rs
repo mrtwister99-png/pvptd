@@ -9,6 +9,7 @@ pub fn update_debuffs(
     time: Res<Time>,
     mut q_slow: Query<(Entity, &mut SlowDebuff)>,
     mut q_stun: Query<(Entity, &mut StunDebuff)>,
+    mut q_marks: ParamSet<(Query<(Entity, &mut crate::components::Cursed)>, Query<(Entity, &mut crate::components::VoodooMark)>)>,
     mut debuffs: ParamSet<(
         Query<(Entity, &Transform, &mut BurnDebuff, &mut Health, Option<&crate::components::Resist>)>,
         Query<(Entity, &Transform, &mut PoisonDebuff, &mut Health, Option<&crate::components::Resist>)>,
@@ -25,6 +26,13 @@ pub fn update_debuffs(
         if stun.timer.finished() {
             if let Some(mut ec) = commands.get_entity(e) { ec.remove::<StunDebuff>(); }
         }
+    }
+    // znacky Curse a Voodoo po case zmizi
+    for (e, mut c) in q_marks.p0().iter_mut() {
+        if c.timer.tick(time.delta()).finished() { if let Some(mut ec) = commands.get_entity(e) { ec.remove::<crate::components::Cursed>(); } }
+    }
+    for (e, mut v) in q_marks.p1().iter_mut() {
+        if v.timer.tick(time.delta()).finished() { if let Some(mut ec) = commands.get_entity(e) { ec.remove::<crate::components::VoodooMark>(); } }
     }
     for (e, tf, mut burn, mut hp, resist) in debuffs.p0().iter_mut() {
         burn.timer.tick(time.delta());

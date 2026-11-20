@@ -22,6 +22,8 @@ pub fn round_system(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut assets: ResMut<CreepAssets>,
     wave_creeps: Query<(), (With<Creep>, Without<SentUnit>)>,
+    towers: Query<&Tower>,
+    mut sides: ResMut<Sides>,
 ) {
     if paused.0 { return; }
     match round.phase {
@@ -39,6 +41,10 @@ pub fn round_system(
                 round.phase = RoundPhase::Pause;
                 round.timer = Timer::from_seconds(ROUND_PAUSE_SECS, TimerMode::Once);
                 round.guardian_sent = false;
+                // MINT: na konci kola vyplati gold sve strane
+                for t in towers.iter().filter(|t| t.kind == crate::special::MINT) {
+                    sides.get_mut(t.side).gold += crate::special::mint_gold(t.level);
+                }
                 println!("Kolo {} skonceno, pauza {} s", wave.0, ROUND_PAUSE_SECS);
             }
         }
@@ -140,13 +146,13 @@ enum CreepRank { Normal, Elite, Boss }
 
 pub fn move_creeps_maze(
     mut commands: Commands,
-    mut creeps: Query<(Entity, &mut Transform, &Creep, &Side, Option<&SlowDebuff>, Option<&crate::components::StunDebuff>, Option<&mut Knockback>, Has<Air>), (With<Creep>, Without<crate::components::Tower>)>,
+    mut creeps: Query<(Entity, &mut Transform, &Creep, &Side, Option<&SlowDebuff>, Option<&crate::components::StunDebuff>, Option<&mut Knockback>, Has<Air>, Option<&mut crate::components::Confused>), (With<Creep>, Without<crate::components::Tower>)>,
     sides: Res<Sides>,
     time: Res<Time>,
     paused: Res<WavePaused>,
 ) {
     if paused.0 { return; }
-    for (e, mut tf, creep, &side, slow_opt, stun_opt, knock_opt, air) in creeps.iter_mut() {
+    for (e, mut tf, creep, &side, slow_opt, stun_opt, knock_opt, air, confused) in creeps.iter_mut() {
         let grid = &sides.get(side).grid; // kazdy creep chodi bludistem sve lajny
         let path = &sides.get(side).path;
         // odhozeni dozadu (smerem na start): leti nahoru, dokud neurazi zadanou vzdalenost
@@ -158,6 +164,19 @@ pub fn move_creeps_maze(
             continue;
         }
         if let Some(stun) = stun_opt { if !stun.timer.finished() { continue; } }
+        // ILLUSION: zmateny creep jde svym nahodnym smerem, dokud neujde vzdalenost nebo nenarazi na vez / okraj lajny
+        if let Some(mut c) = confused {
+            let step = (CREEP_BASE_SPEED * creep.speed_mul * time.delta_secs()).min(c.remaining);
+            let next = tf.translation.truncate() + c.dir * step;
+            let free = world_to_grid(side, next.x, next.y).map_or(false, |(r, cc)| !grid.blocked[r][cc]);
+            if free && step > 0.0 {
+                tf.translation.x = next.x;
+                tf.translation.y = next.y;
+                c.remaining -= step;
+                continue;
+            }
+            commands.entity(e).remove::<crate::components::Confused>();
+        }
         let speed_factor = (if let Some(slow) = slow_opt { slow.factor } else { 1.0 }) * creep.speed_mul; // zpomaleni * rychlost typu jednotky
         // letajici jednotka leti rovne dolu pres bludiste
         if air { tf.translation.y -= CREEP_BASE_SPEED * speed_factor * time.delta_secs(); continue; }
@@ -389,6 +408,7 @@ pub fn send_unit_system(
     mut sides: ResMut<Sides>,
     round: Res<RoundState>,
     over: Res<MatchOver>,
+    towers: Query<&Tower>,
     assets: Res<CreepAssets>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -418,7 +438,8 @@ pub fn send_unit_system(
         income.amount += def.income as f32 * income_multiplier(income.sent[idx]); // scaling podle poctu odeslani TETO jednotky (wave_def::INCOME_TIERS)
         income.sent[idx] += 1;
         // poslana jednotka jde na lajnu SOUPERE
-        spawn_sent_unit(&mut commands, &assets, &mut meshes, &mut materials, &asset_server, Side::Bot, kind);
+        let (hp_mul, speed_mul) = barracks_buff(Side::Player, &towers);
+        spawn_sent_unit(&mut commands, &assets, &mut meshes, &mut materials, &asset_server, Side::Bot, kind, hp_mul, speed_mul);
         println!("Odeslana jednotka {} za {}G, income {:.1} / 7s", def.name, def.cost, income.amount);
     }
 }
@@ -432,8 +453,12 @@ pub fn spawn_sent_unit(
     asset_server: &AssetServer,
     side: Side,
     kind: u8,
+    hp_mul: f32,    // Barracks odesilatele: nasobek HP
+    speed_mul: f32, // ...a rychlosti
 ) {
-    let def = get_unit_def(kind);
+    let mut def = get_unit_def(kind);
+    def.hp *= hp_mul;
+    def.speed_mul *= speed_mul;
     let x = side.lane_x() + rand::thread_rng().gen_range(-LANE_W*0.35..LANE_W*0.35);
     let y = LANE_Y + LANE_H/2.0 + SPAWN_ABOVE;
     let radius = def.radius;
@@ -589,7 +614,7 @@ pub fn heal_system(
     mut near: Local<Vec<(Entity, Vec2)>>, // znovupouzity buffer
     mut commands: Commands,
     mut ring_pool: ResMut<HealRingPool>,
-    mut priests: Query<(Entity, &Transform, &mut Heal)>,
+    mut priests: Query<(Entity, &Transform, &mut Heal), Without<crate::components::Cursed>>, // prokleti lecitele neleci
     mut creeps: Query<(&mut Health, &MaxHealth, &Creep), With<Creep>>,
 ) {
     if paused.0 { return; }
@@ -630,7 +655,7 @@ pub fn aura_system(
     mut acc: Local<f32>,
     mut near: Local<Vec<(Entity, Vec2)>>,   // znovupouzity buffer
     mut covered: Local<Vec<(Entity, f32)>>, // (creep v aure, bonus)
-    captains: Query<(Entity, &Transform, &Aura)>,
+    captains: Query<(Entity, &Transform, &Aura), Without<crate::components::Cursed>>, // prokleta aura nefunguje
     mut creeps: Query<(Entity, &mut Health, &mut MaxHealth, Option<&AuraBuff>), With<Creep>>,
 ) {
     if paused.0 { return; }
@@ -966,6 +991,8 @@ pub fn tower_aura_system(
     mut stomps: Local<Vec<(Vec2, f32, f32)>>, // (stred, radius, sekundy omraceni) pro tento snimek, znovupouzity buffer
     mut auras: Query<(&Transform, &mut TowerAura)>,
     mut towers: Query<(Entity, &Transform, Option<&mut TowerMods>), With<Tower>>,
+    bells: Query<(Entity, &Transform, &Tower)>,
+    mut bell_list: Local<Vec<(Entity, Vec2, f32, u32)>>, // (Bell, pozice, okruh, rank) pro tento snimek
 ) {
     if paused.0 { return; }
     let dt = time.delta_secs();
@@ -975,6 +1002,10 @@ pub fn tower_aura_system(
             a.timer.tick(time.delta());
             if a.timer.just_finished() { stomps.push((tf.translation.truncate(), a.radius, a.stomp_stun)); }
         }
+    }
+    bell_list.clear();
+    for (e, tf, t) in bells.iter() {
+        if t.kind == crate::special::BELL { bell_list.push((e, tf.translation.truncate(), t.range, t.level)); }
     }
     for (t_ent, t_tf, mods) in towers.iter_mut() {
         let Some(mut mods) = mods else {
@@ -990,6 +1021,11 @@ pub fn tower_aura_system(
                 rate *= a.rate_mul;
                 random = random.max(a.random_target);
             }
+        }
+        // BELL: nejsilnejsi Bell v dosahu (vic se nescita, sama sebe neposiluje)
+        if let Some(&(_, _, _, rank)) = bell_list.iter().filter(|b| b.0 != t_ent && b.1.distance(t_pos) <= b.2).max_by_key(|b| b.3) {
+            rate *= 1.0 + crate::special::bell_rate(rank);
+            dmg *= 1.0 + crate::special::bell_dmg(rank);
         }
         mods.dmg_mul = dmg;
         mods.range_mul = range;
@@ -1029,4 +1065,12 @@ pub fn income_system(
     let income = &sides.get(Side::Player).income;
     let s = format!("Income in: {:.0}s (+{:.1})", income.timer.remaining_secs().ceil(), income.amount); // za kolik s prijde, v zavorce celkovy income
     for mut t in q_text.iter_mut() { if t.0 != s { t.0 = s.clone(); } }
+}
+
+// BARRACKS strany `sender`: (nasobek HP, nasobek rychlosti) jejich poslanych jednotek; plati nejvyssi Barracks
+pub fn barracks_buff(sender: Side, towers: &Query<&Tower>) -> (f32, f32) {
+    match towers.iter().filter(|t| t.side == sender && t.kind == crate::special::BARRACKS).map(|t| t.level).max() {
+        Some(rank) => (1.0 + crate::special::barracks_hp(rank), 1.0 + crate::special::barracks_speed(rank)),
+        None => (1.0, 1.0),
+    }
 }

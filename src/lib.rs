@@ -8,6 +8,7 @@ mod utils;
 mod systems;
 mod menu;
 mod deck;
+mod special;
 use constants::{COLS, ROWS, CELL, LANE_W, LANE_H, LANE_Y, FINISH_EXTRA_ROWS, SAFE_TOP, SAFE_BOTTOM, CAM_BASE_Y};
 use resources::*;
 use components::*;
@@ -120,6 +121,7 @@ pub fn main() {
             game_over_button_system,
             tower_drag_system,
             bot_system,
+            special_towers_system.after(build_creep_grid),
         ).run_if(in_state(AppState::Playing)))
         .run();
 }

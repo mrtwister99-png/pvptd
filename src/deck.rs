@@ -19,7 +19,7 @@ pub fn spawn_deck_screen(mut commands: Commands, asset_server: Res<AssetServer>)
             flex_direction: FlexDirection::Column,
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
-            row_gap: Val::Px(16.0),
+            row_gap: Val::Px(12.0),
             ..default()
         },
         BackgroundColor(Color::srgb(0.08, 0.08, 0.1)),
@@ -34,23 +34,27 @@ pub fn spawn_deck_screen(mut commands: Commands, asset_server: Res<AssetServer>)
             justify_content: JustifyContent::Center,
             column_gap: Val::Px(10.0),
             row_gap: Val::Px(10.0),
-            max_width: Val::Px(420.0),
+            max_width: Val::Px(470.0),
             ..default()
         }).with_children(|g| {
             for (kind, name) in ALL_TOWERS {
                 let def = get_tower_def(kind, 1);
                 g.spawn((
                     Button,
-                    Node { width: Val::Px(90.0), height: Val::Px(96.0), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, align_items: AlignItems::Center, row_gap: Val::Px(4.0), border: UiRect::all(Val::Px(3.0)), ..default() },
+                    Node { width: Val::Px(84.0), height: Val::Px(80.0), flex_direction: FlexDirection::Column, justify_content: JustifyContent::Center, align_items: AlignItems::Center, row_gap: Val::Px(4.0), border: UiRect::all(Val::Px(3.0)), ..default() },
                     BackgroundColor(Color::srgb(0.18, 0.18, 0.2)),
                     BorderColor(Color::NONE),
                     DeckTowerButton(kind),
                 )).with_children(|b| {
                     match tower_icon_path(kind) {
-                        Some(path) => { b.spawn((ImageNode::new(asset_server.load(path)), Node { width: Val::Px(48.0), height: Val::Px(48.0), ..default() })); }
-                        None => { b.spawn((Node { width: Val::Px(40.0), height: Val::Px(40.0), ..default() }, BackgroundColor(def.color))); }
+                        Some(path) => { b.spawn((ImageNode::new(asset_server.load(path)), Node { width: Val::Px(40.0), height: Val::Px(40.0), ..default() })); }
+                        None => {
+                            b.spawn((Node { width: Val::Px(36.0), height: Val::Px(36.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() }, BackgroundColor(def.color))).with_children(|sq| {
+                                sq.spawn((Text::new(crate::constants::tower_tag(kind)), TextFont { font_size: 11.0, ..default() }, TextColor(Color::BLACK)));
+                            });
+                        }
                     }
-                    b.spawn((Text::new(name), TextFont { font_size: 12.0, ..default() }, TextColor(Color::WHITE)));
+                    b.spawn((Text::new(name), TextFont { font_size: 10.0, ..default() }, TextColor(Color::WHITE)));
                 });
             }
         });

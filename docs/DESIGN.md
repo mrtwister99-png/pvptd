@@ -69,11 +69,37 @@ Rychlá a pestrá mobilní **1v1 PvP tower defense**. Kořeny má v Line Tower W
 
 ### B. Ekonomika (2026-11-20)
 
-- **Start**: **30 g** (hned jdou postavit 2 věže: 10 + 20 g), income **10**.
+- **Start**: **100 g** (na začátku jdou postavit 4 věže: 10+20+30+40 g), income **10**.
 - **Income tick každých 7 s**: dostaneš tolik goldu, kolik máš income.
 - **Poslaná jednotka trvale zvedne income** (např. Sheep za 5 g → +1).
 - **Gold za zabití creepa**: ano.
 - Tím se **ruší** dosavadní vylepšování lvl 1–5 za gold (Basic Tower → Phantom Archer…). Síla věže = úroveň karty × rank v zápase.
+
+### Věže (2026-11-20) – 18 druhů, balíček 5 z 18
+
+| # | Věž | Co dělá |
+|---|---|---|
+| 1 | ARROW | rychlé střely na jeden cíl |
+| 2 | CANNON | plošné poškození, jen zem |
+| 3 | FROST | zmrazí / zpomalí víc creepů |
+| 4 | FIRE | zapálí (poškození v čase), plošně |
+| 5 | POISON | jed + mírné zpomalení |
+| 6 | SNIPER | velký dosah, silná rána |
+| 7 | LIGHTNING | blesk přeskakuje, omráčí / odhodí |
+| 8 | HARPOON | jen na létající, srazí je na zem (pak musí bludištěm) |
+| 9 | GEYSER | pulz odhodí pozemní creepy v okolí zpět |
+| 10 | EXECUTIONER | + % chybějícího HP, poprava pod hranicí (ne boss) |
+| 11 | VOODOO | značka: část poškození se přenese na okolní creepy |
+| 12 | CURSE | značka: creep dostává víc poškození, nefunguje mu léčení ani aura |
+| 13 | ILLUSION | zmatený creep jde náhodným směrem na náhodnou vzdálenost (víc s rankem) |
+| 14 | TWIN | slabší střílna; při spojení zůstane na původním místě nová věž R1 (2× R1 → R2 + R1) |
+| 15 | MINT | nestřílí, gold na konci každého kola |
+| 16 | BELL | nestřílí, okolní věže střílí rychleji a silněji |
+| 17 | SPIKES | past na blízkého pozemního creepa (R5 zpomalí, R7 otráví) |
+| 18 | BARRACKS | nestřílí, tvoje poslané jednotky mají víc HP a rychlost |
+
+Parametry speciálních věží podle ranku jsou v `src/special.rs`, základní čísla v `src/tower_def.rs`.
+Nápady na později: Laser (sílí na jednom cíli), Nekromant (kostlivci jako dočasné zdi), Chronometr, Překupník / Zbrojnice / Líheň (vylepšení posílaných jednotek), Pokladnice (úrok).
 
 ## 5. Otevřené otázky
 

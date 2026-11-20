@@ -25,6 +25,10 @@ pub fn spawn_tower(commands: &mut Commands, asset_server: &AssetServer, side: Si
         Tower { side, damage_min: def.dmg_min, damage_max: def.dmg_max, range: def.range, fire_rate, cooldown: 0.0, kind, col, row, level: rank, splash: def.splash, slow_per_hit: def.slow_per, slow_max: def.slow_max, push_chance: def.push_chance, push_dist: def.push_dist, dot_dps: def.dot_dps, dot_duration: def.dot_dur, chain_targets: def.chain, hit_count: 0, invested },
     )).with_children(|p| {
         p.spawn((Text2d::new(format!("R{}", rank)), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE), Transform::from_xyz(0.0, -18.0, 1.0), TowerLevelText));
+        // vez bez ikony: zkratka nazvu doprostred ctverecku, at se daji rozeznat
+        if tower_icon_path(kind).is_none() {
+            p.spawn((Text2d::new(crate::constants::tower_tag(kind)), TextFont { font_size: 12.0, ..default() }, TextColor(Color::BLACK), Transform::from_xyz(0.0, 3.0, 1.0)));
+        }
     });
 }
 
@@ -61,9 +65,15 @@ pub fn try_merge(commands: &mut Commands, asset_server: &AssetServer, sides: &mu
     let kind = st.deck[rand::thread_rng().gen_range(0..st.deck.len())];
     commands.entity(from.e).despawn_recursive();
     commands.entity(to.e).despawn_recursive();
-    st.grid.blocked[from.row][from.col] = false;
-    st.path.dist = compute_path(&st.grid.blocked);
     spawn_tower(commands, asset_server, side, kind, to.rank + 1, to.row, to.col, from.invested + to.invested);
+    if from.kind == crate::special::TWIN {
+        // TWIN: na puvodnim miste zustane nova nahodna vez R1 z balicku (2x R1 -> R2 + R1), bludiste se nemeni
+        let left = st.deck[rand::thread_rng().gen_range(0..st.deck.len())];
+        spawn_tower(commands, asset_server, side, left, 1, from.row, from.col, 0);
+    } else {
+        st.grid.blocked[from.row][from.col] = false;
+        st.path.dist = compute_path(&st.grid.blocked);
+    }
     println!("{:?} spojil 2x R{} -> {} R{} na [{},{}]", side, to.rank, kind, to.rank + 1, to.col, to.row);
     true
 }

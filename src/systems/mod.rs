@@ -6,6 +6,7 @@ pub mod debuff;
 pub mod effects;
 pub mod ui;
 pub mod bot;
+pub mod special_towers;
 
 pub use tower_build::{sell_tower_input, build_button_input, tower_drag_system, mouse_hover_system, mouse_click_select_system, keyboard_pause_system, pause_button_system_top_left, panels_input_system, panels_display_system, selling_system, pointer_system, range_rings_system, send_panel_scroll_system, camera_gesture_system, selection_marker_system, adopt_ui_system, safe_area_system, switch_view_system};
 pub use tower_combat::{tower_shoot, move_bullets, bullet_hit, setup_bullet_pool, build_creep_grid};
@@ -14,3 +15,4 @@ pub use debuff::{update_debuffs, update_damage_numbers, setup_damage_pool};
 pub use effects::{ParticlePool, BoltPool, setup_particle_pool, setup_bolt_pool, freeze_system, particle_spawn_system, particle_update_system, bolt_update_system, ignite_visual_system};
 pub use ui::{update_ui, update_wave_timer, game_over_system, game_over_button_system};
 pub use bot::bot_system;
+pub use special_towers::special_towers_system;

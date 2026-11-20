@@ -21,7 +21,7 @@ pub const CAM_BASE_Y: f32 = (SAFE_TOP + 36.0 - SAFE_BOTTOM) / 2.0;
 // 1v1: lajna bota lezi ve svete o tolik vpravo od hracovy. Je to dal nez nejvetsi dosah veze,
 // takze strely, aury a leceni jedne strany nikdy nezasahnou na druhou.
 pub const SIDE_OFFSET_X: f32 = 3000.0;
-pub const START_GOLD: i32 = 30;   // hned jdou postavit 2 veze (10 + 20 g)
+pub const START_GOLD: i32 = 100;  // na zacatku jde postavit 4 veze (10+20+30+40 g)
 pub const START_LIVES: u32 = 15;  // oba zacinaji s 15, dohromady 30 (pretahovana)
 pub const TOTAL_LIVES: u32 = 30;
 
@@ -46,7 +46,15 @@ pub const BUILD_COST_STEP: i32 = 10;  // stavba: 1. vez 10 g, 2. 20 g, 3. 30 g..
 pub const BUILD_COST_MAX: i32 = 100;  // ...ale nejvys 100 g (bez stropu by rank 7 = 64 staveb nesel nikdy postavit)
 pub const DECK_SIZE: usize = 5;       // kolik vezi si hrac bere do zapasu
 // vsechny veze, ze kterych se sklada balicek (druh, nazev)
-pub const ALL_TOWERS: [(u8, &str); 7] = [(1, "ARROW"), (2, "CANNON"), (3, "FROST"), (4, "FIRE"), (5, "POISON"), (6, "SNIPER"), (7, "LIGHTNING")];
+pub const ALL_TOWERS: [(u8, &str); 18] = [
+    (1, "ARROW"), (2, "CANNON"), (3, "FROST"), (4, "FIRE"), (5, "POISON"), (6, "SNIPER"), (7, "LIGHTNING"),
+    (8, "HARPOON"), (9, "GEYSER"), (10, "EXECUTIONER"), (11, "VOODOO"), (12, "CURSE"), (13, "ILLUSION"),
+    (14, "TWIN"), (15, "MINT"), (16, "BELL"), (17, "SPIKES"), (18, "BARRACKS"),
+];
+// kratka zkratka na vez bez ikony (aby se barevne ctverecky daly rozeznat)
+pub fn tower_tag(kind: u8) -> &'static str {
+    ALL_TOWERS.iter().find(|t| t.0 == kind).map_or("?", |t| &t.1[..3])
+}
 // bot
 pub const BOT_THINK_SECS: f32 = 0.8;  // jak casto bot premysli (mensi = rychlejsi = tezsi)
 pub const SELL_SECONDS: f32 = 3.0;   // jak dlouho trva prodej veze (behem toho jeste strili)

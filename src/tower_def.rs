@@ -110,9 +110,40 @@ fn base_tower_def(kind: u8, level: u32) -> TowerDef {
             ];
             defs[lvl].clone()
         },
-        
+        8..=18 => special_def(kind, lvl),
         _ => TowerDef { name:"Unknown", gold:999, dmg_min:1.0, dmg_max:1.0, range:100.0, interval:1.0, splash:0.0, slow_per:0.0, slow_max:0.0, push_chance:0.0, push_dist:0.0, dot_dps:0.0, dot_dur:0.0, chain:0, color:Color::srgb(0.5,0.5,0.5) },
     }
 }
 
 
+
+// specialni veze 8-18: 5 radku = rank 1..5 (6 a 7 dopocita get_tower_def).
+// (dmg_min, dmg_max, dosah pred TOWER_RANGE_SCALE, interval, splash, push_dist)
+fn special_def(kind: u8, lvl: usize) -> TowerDef {
+    let (name, color, rows): (&'static str, Color, [(f32, f32, f32, f32, f32, f32); 5]) = match kind {
+        // HARPOON: jen na letajici, silna rana
+        8 => ("Harpoon", Color::srgb(0.2, 0.75, 0.75), [(14.0, 16.0, 500.0, 1.5, 0.0, 0.0), (36.0, 40.0, 550.0, 1.4, 0.0, 0.0), (90.0, 100.0, 600.0, 1.3, 0.0, 0.0), (220.0, 240.0, 650.0, 1.2, 0.0, 0.0), (540.0, 580.0, 700.0, 1.1, 0.0, 0.0)]),
+        // GEYSER: dosah = okruh pulzu, interval = jak casto, push = jak daleko odhodi
+        9 => ("Geyser", Color::srgb(0.55, 0.8, 1.0), [(3.0, 3.0, 240.0, 6.0, 0.0, 60.0), (8.0, 8.0, 270.0, 5.5, 0.0, 80.0), (20.0, 20.0, 300.0, 5.0, 0.0, 100.0), (50.0, 50.0, 330.0, 4.5, 0.0, 120.0), (120.0, 120.0, 360.0, 4.0, 0.0, 150.0)]),
+        // EXECUTIONER: pomala silna rana + % chybejiciho HP
+        10 => ("Executioner", Color::srgb(0.55, 0.1, 0.1), [(7.0, 9.0, 320.0, 2.0, 0.0, 0.0), (18.0, 22.0, 340.0, 1.9, 0.0, 0.0), (45.0, 55.0, 360.0, 1.8, 0.0, 0.0), (110.0, 130.0, 380.0, 1.7, 0.0, 0.0), (280.0, 320.0, 400.0, 1.6, 0.0, 0.0)]),
+        // VOODOO: slaba rana, hlavne znacka
+        11 => ("Voodoo", Color::srgb(0.6, 0.3, 0.6), [(2.0, 2.0, 420.0, 1.6, 0.0, 0.0), (5.0, 5.0, 450.0, 1.5, 0.0, 0.0), (12.0, 12.0, 480.0, 1.4, 0.0, 0.0), (30.0, 30.0, 510.0, 1.3, 0.0, 0.0), (70.0, 70.0, 540.0, 1.2, 0.0, 0.0)]),
+        // CURSE: slaba rana, kletba
+        12 => ("Curse", Color::srgb(0.45, 0.15, 0.7), [(1.0, 1.0, 450.0, 1.3, 0.0, 0.0), (3.0, 3.0, 480.0, 1.2, 0.0, 0.0), (7.0, 7.0, 510.0, 1.1, 0.0, 0.0), (15.0, 15.0, 540.0, 1.0, 0.0, 0.0), (35.0, 35.0, 570.0, 0.9, 0.0, 0.0)]),
+        // ILLUSION: slaba rana, zmateni
+        13 => ("Illusion", Color::srgb(0.95, 0.6, 0.85), [(2.0, 2.0, 400.0, 2.5, 0.0, 0.0), (5.0, 5.0, 420.0, 2.3, 0.0, 0.0), (12.0, 12.0, 440.0, 2.1, 0.0, 0.0), (30.0, 30.0, 460.0, 1.9, 0.0, 0.0), (70.0, 70.0, 480.0, 1.7, 0.0, 0.0)]),
+        // TWIN: slabsi strilna (vyhoda je pri spojovani)
+        14 => ("Twin", Color::srgb(0.85, 0.75, 0.55), [(1.5, 3.0, 400.0, 1.0, 0.0, 0.0), (4.0, 6.0, 450.0, 0.9, 0.0, 0.0), (11.0, 13.0, 500.0, 0.9, 0.0, 0.0), (27.0, 29.0, 550.0, 0.8, 0.0, 0.0), (80.0, 90.0, 600.0, 0.8, 0.0, 0.0)]),
+        // MINT: nestrili
+        15 => ("Mint", Color::srgb(1.0, 0.82, 0.1), [(0.0, 0.0, 0.0, 99.0, 0.0, 0.0); 5]),
+        // BELL: dosah = okruh, ve kterem posiluje veze
+        16 => ("Bell", Color::srgb(0.9, 0.9, 0.95), [(0.0, 0.0, 220.0, 99.0, 0.0, 0.0), (0.0, 0.0, 260.0, 99.0, 0.0, 0.0), (0.0, 0.0, 300.0, 99.0, 0.0, 0.0), (0.0, 0.0, 340.0, 99.0, 0.0, 0.0), (0.0, 0.0, 380.0, 99.0, 0.0, 0.0)]),
+        // SPIKES: dosah = jak blizko musi creep prijit, interval = nabijeni, splash = vybuch
+        17 => ("Spikes", Color::srgb(0.6, 0.45, 0.3), [(20.0, 20.0, 170.0, 3.0, 70.0, 0.0), (50.0, 50.0, 170.0, 2.7, 75.0, 0.0), (120.0, 120.0, 180.0, 2.4, 80.0, 0.0), (300.0, 300.0, 180.0, 2.1, 85.0, 0.0), (700.0, 700.0, 190.0, 1.8, 90.0, 0.0)]),
+        // BARRACKS: nestrili
+        _ => ("Barracks", Color::srgb(0.45, 0.5, 0.35), [(0.0, 0.0, 0.0, 99.0, 0.0, 0.0); 5]),
+    };
+    let (dmin, dmax, range, interval, splash, push) = rows[lvl];
+    TowerDef { name, gold: 0, dmg_min: dmin, dmg_max: dmax, range, interval, splash, slow_per: 0.0, slow_max: 0.0, push_chance: 0.0, push_dist: push, dot_dps: 0.0, dot_dur: 0.0, chain: 0, color }
+}

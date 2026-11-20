@@ -5,7 +5,7 @@ use rand::Rng;
 use crate::components::{Side, Tower, Selling};
 use crate::constants::{BOT_THINK_SECS, COLS, ROWS};
 use crate::resources::{CreepAssets, MatchOver, RoundPhase, RoundState, Sides, WavePaused};
-use crate::systems::creep::spawn_sent_unit;
+use crate::systems::creep::{spawn_sent_unit, barracks_buff};
 use crate::systems::tower_build::{build_cost, try_build_random, try_merge, TowerRef};
 use crate::utils::compute_path;
 use crate::wave_def::{get_unit_def, income_multiplier, UNIT_COUNT};
@@ -47,6 +47,7 @@ pub fn bot_system(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut think: Local<f32>,
     towers: Query<(Entity, &Tower), Without<Selling>>,
+    all_towers: Query<&Tower>,
 ) {
     if paused.0 || over.0.is_some() { return; }
     *think += time.delta_secs();
@@ -96,6 +97,7 @@ pub fn bot_system(
     let idx = (kind as usize).min(31);
     st.income.amount += def.income as f32 * income_multiplier(st.income.sent[idx]);
     st.income.sent[idx] += 1;
-    spawn_sent_unit(&mut commands, &assets, &mut meshes, &mut materials, &asset_server, me.other(), kind);
+    let (hp_mul, speed_mul) = barracks_buff(me, &all_towers);
+    spawn_sent_unit(&mut commands, &assets, &mut meshes, &mut materials, &asset_server, me.other(), kind, hp_mul, speed_mul);
     println!("Bot poslal {} za {}G (income {:.1})", def.name, def.cost, st.income.amount);
 }
