@@ -46,7 +46,7 @@ pub const BUILD_COST_STEP: i32 = 10;  // stavba: 1. vez 10 g, 2. 20 g, 3. 30 g..
 pub const BUILD_COST_MAX: i32 = 100;  // ...ale nejvys 100 g (bez stropu by rank 7 = 64 staveb nesel nikdy postavit)
 pub const DECK_SIZE: usize = 5;       // kolik vezi si hrac bere do zapasu
 // vsechny veze, ze kterych se sklada balicek (druh, nazev)
-pub const ALL_TOWERS: [(u8, &str); 7] = [(1, "ARROW"), (2, "CANNON"), (3, "FROST"), (4, "FIRE"), (5, "POISON"), (6, "SNIPER"), (7, "SHOCK")];
+pub const ALL_TOWERS: [(u8, &str); 7] = [(1, "ARROW"), (2, "CANNON"), (3, "FROST"), (4, "FIRE"), (5, "POISON"), (6, "SNIPER"), (7, "LIGHTNING")];
 // bot
 pub const BOT_THINK_SECS: f32 = 0.8;  // jak casto bot premysli (mensi = rychlejsi = tezsi)
 pub const SELL_SECONDS: f32 = 3.0;   // jak dlouho trva prodej veze (behem toho jeste strili)
@@ -69,6 +69,7 @@ pub fn tower_icon_path(kind: u8) -> Option<&'static str> {
         2 => Some("icons/towers/cannon.png"),
         3 => Some("icons/towers/frost.png"),
         4 => Some("icons/towers/fire.png"),
+        7 => Some("icons/towers/ele.png"), // blesk (Lightning / Shock)
         _ => None,
     }
 }
