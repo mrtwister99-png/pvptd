@@ -1,8 +1,27 @@
 use bevy::prelude::*;
 use crate::constants::{COLS, ROWS};
 
+// faze zapasu: pauza mezi koly, nebo prave bezi kolo
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RoundPhase { Pause, Running }
+
 #[derive(Resource)]
-pub struct CreepTimer(pub Timer);
+pub struct RoundState {
+    pub phase: RoundPhase,
+    pub timer: Timer,        // odpocet pauzy
+    pub elapsed: f32,        // jak dlouho uz bezi kolo
+    pub guardian_sent: bool, // hlidac pred dalsim kolem uz vybehl
+}
+
+impl Default for RoundState {
+    fn default() -> Self {
+        Self { phase: RoundPhase::Pause, timer: Timer::from_seconds(crate::constants::BUILD_PHASE_SECS, TimerMode::Once), elapsed: 0.0, guardian_sent: false }
+    }
+}
+
+// konec zapasu: Some(vitez), jakmile nekdo prijde o vsechny zivoty
+#[derive(Resource, Default)]
+pub struct MatchOver(pub Option<crate::components::Side>);
 #[derive(Resource)]
 pub struct WavePaused(pub bool);
 #[derive(Resource)]

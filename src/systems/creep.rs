@@ -2,69 +2,89 @@
 use bevy::prelude::*;
 use rand::Rng;
 use crate::components::{Creep, CreepMainCircle, Health, MaxHealth, CreepHpText, CreepStatusText, SlowOutline, SlowDebuff, BurnDebuff, HpBarBg, HpBarFill, HpBarText, SentUnit, SendPanelItem, IncomeText, Knockback, Air, Enrage, EnrageFlash, Resist, Guardian, Heal, Tower, Aura, AuraBuff, ShootBack, TowerSlow, FrostOverlay, Shimmer, GuardianMsg, CheatButton, TowerAura, TowerMods};
-use crate::resources::{CreepAssets, CreepTimer, WavePaused, WaveCount, Diamonds, Grid, PathMap, Sides, SelectedCell};
+use crate::resources::{CreepAssets, RoundState, RoundPhase, MatchOver, WavePaused, WaveCount, Diamonds, Grid, PathMap, Sides, SelectedCell};
 use crate::components::Side;
-use crate::constants::{LANE_Y, LANE_W, LANE_H, CREEP_BASE_SPEED, CREEP_GROWTH_PER_WAVE, CREEP_GROWTH_MAX_SCALE, FROST_OUTLINE_MAX_EXTRA, COLS, ROWS, MAX_WAVES, LEAK_GOLD_RATIO, CELL, SPAWN_ABOVE, TOTAL_LIVES};
+use crate::constants::{LANE_Y, LANE_W, LANE_H, CREEP_BASE_SPEED, CREEP_GROWTH_PER_WAVE, CREEP_GROWTH_MAX_SCALE, FROST_OUTLINE_MAX_EXTRA, COLS, ROWS, LEAK_GOLD_RATIO, CELL, SPAWN_ABOVE, TOTAL_LIVES, ROUND_PAUSE_SECS, ROUND_MAX_SECS, BOSS_EVERY, ELITE_HP_MUL, BOSS_HP_MUL, LATE_ROUND, LATE_ROUND_HP_GROWTH, LEAK_NORMAL, LEAK_ELITE, LEAK_BOSS};
 use crate::wave_def::{get_wave_def, get_unit_def, income_multiplier, is_air, enrage_for, resist_for, heal_for, aura_for, shoot_back_for, shimmer_for, tower_aura_for};
 use crate::utils::{world_to_grid, grid_to_world, compute_path};
 
-pub fn spawn_wave_system(
+// === KOLA ===
+// Pauza (prvni je delsi = stavba) -> kolo: na obe lajny prijde vlna (normalni creepi + 1 vetsi, kazde 5. kolo i boss).
+// Kolo skonci, az z obou lajn zmizi vsichni creepi automaticke vlny (zabiti nebo prosli), nejpozdeji po ROUND_MAX_SECS.
+// Pak zase pauza ROUND_PAUSE_SECS. Posilat jednotky jde jen behem kola.
+pub fn round_system(
     mut commands: Commands,
-    mut timer: ResMut<CreepTimer>,
     time: Res<Time>,
+    mut round: ResMut<RoundState>,
     mut wave: ResMut<WaveCount>,
     paused: Res<WavePaused>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut assets: ResMut<CreepAssets>,
+    wave_creeps: Query<(), (With<Creep>, Without<SentUnit>)>,
 ) {
-    if paused.0 || wave.0 >= MAX_WAVES { return; } // po posledni vlne uz nic nechodi
-    if timer.0.tick(time.delta()).just_finished() {
-        wave.0 += 1;
-        if wave.0 == 1 { timer.0.set_duration(std::time::Duration::from_secs_f32(15.0)); }
-        let wdef = get_wave_def(wave.0);
-        println!("Vlna {} - {} count {} scale {:.2}", wave.0, wdef.name, wdef.count, 1.0 + wave.0 as f32 * CREEP_GROWTH_PER_WAVE);
+    if paused.0 { return; }
+    match round.phase {
+        RoundPhase::Pause => {
+            if !round.timer.tick(time.delta()).just_finished() { return; }
+            wave.0 += 1;
+            round.phase = RoundPhase::Running;
+            round.elapsed = 0.0;
+            spawn_round_wave(&mut commands, &mut meshes, &mut materials, &mut assets, wave.0);
+        }
+        RoundPhase::Running => {
+            round.elapsed += time.delta_secs();
+            let cleared = round.elapsed > 1.0 && wave_creeps.is_empty(); // 1 s rezerva, nez se spawnuti projevi
+            if cleared || round.elapsed >= ROUND_MAX_SECS {
+                round.phase = RoundPhase::Pause;
+                round.timer = Timer::from_seconds(ROUND_PAUSE_SECS, TimerMode::Once);
+                round.guardian_sent = false;
+                println!("Kolo {} skonceno, pauza {} s", wave.0, ROUND_PAUSE_SECS);
+            }
+        }
+    }
+}
 
-        // HP creepu roste s vlnou (velikost uz ne)
-        let wave_scale = (1.0 + wave.0 as f32 * CREEP_GROWTH_PER_WAVE).min(CREEP_GROWTH_MAX_SCALE);
+// nasobek HP v pozdnich kolech: od LATE_ROUND roste HP navic geometricky (pojistka, aby zapas skoncil)
+fn late_round_mul(round: u32) -> f32 {
+    if round <= LATE_ROUND { 1.0 } else { LATE_ROUND_HP_GROWTH.powi((round - LATE_ROUND) as i32) }
+}
 
-        // automaticka vlna jde na obe lajny stejne (oba hraci maji stejne podminky)
-        for side in Side::ALL {
-        for i in 0..wdef.count {
-            let mut rng = rand::thread_rng();
+fn spawn_round_wave(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut Assets<ColorMaterial>, assets: &mut CreepAssets, round: u32) {
+    let wdef = get_wave_def(round);
+    // HP creepu roste s vlnou (velikost uz ne), v pozdnich kolech jeste rychleji
+    let wave_scale = (1.0 + round as f32 * CREEP_GROWTH_PER_WAVE).min(CREEP_GROWTH_MAX_SCALE) * late_round_mul(round);
+    let has_boss = round % BOSS_EVERY == 0;
+    println!("Kolo {} - {} ({} creepu + vetsi{}) scale {:.2}", round, wdef.name, wdef.count, if has_boss { " + BOSS" } else { "" }, wave_scale);
+
+    let mut normal_hp = wdef.hp * wave_scale;
+    if wdef.is_sudden { normal_hp *= 2.0; }
+    let elite_hp = normal_hp * ELITE_HP_MUL;
+    let boss_hp = (if wdef.boss_hp > 0.0 { wdef.boss_hp } else { wdef.hp * BOSS_HP_MUL }) * late_round_mul(round);
+
+    // poradi v rade: normalni, za nimi vetsi, uplne vzadu boss
+    let mut lineup: Vec<(CreepRank, f32)> = (0..wdef.count).map(|_| (CreepRank::Normal, normal_hp)).collect();
+    lineup.push((CreepRank::Elite, elite_hp));
+    if has_boss { lineup.push((CreepRank::Boss, boss_hp)); }
+
+    // automaticka vlna jde na obe lajny stejne (oba hraci maji stejne podminky)
+    for side in Side::ALL {
+        let mut rng = rand::thread_rng();
+        for (i, &(rank, hp)) in lineup.iter().enumerate() {
             let jitter = Vec2::new(rng.gen_range(-18.0..18.0), rng.gen_range(-8.0..8.0));
             let base_x = side.lane_x() + rng.gen_range(-LANE_W*0.35..LANE_W*0.35);
             let base_y = LANE_Y + LANE_H/2.0 + SPAWN_ABOVE + i as f32 * 22.0;
-
-            let is_boss = i == wdef.count-1 && wdef.boss_hp > 0.0;
-            let is_mega = wdef.is_mega && is_boss;
-
-            // vsichni bezni creepi jedna barva, boss/mega maji vlastni
-            let creep_color = if is_mega {
-                Color::srgb(0.95, 0.2, 0.95)
-            } else if is_boss {
-                Color::srgb(1.0, 0.2, 0.2)
-            } else {
-                Color::srgb(0.65, 0.4, 0.9)
+            let is_mega = rank == CreepRank::Boss && wdef.is_mega;
+            let (color, radius, leak_cost) = match rank {
+                CreepRank::Normal => (Color::srgb(0.65, 0.4, 0.9), 11.0, LEAK_NORMAL),
+                CreepRank::Elite => (Color::srgb(1.0, 0.55, 0.15), 18.0, LEAK_ELITE),
+                CreepRank::Boss => (if is_mega { Color::srgb(0.95, 0.2, 0.95) } else { Color::srgb(1.0, 0.2, 0.2) }, if is_mega { 40.0 } else { 30.0 }, LEAK_BOSS),
             };
-
-            // velikost je pevna (neroste s vlnou), boss je velky
-            let (hp, base_radius) = if is_mega {
-                (wdef.boss_hp, 40.0)
-            } else if is_boss {
-                (wdef.boss_hp, 30.0)
-            } else {
-                let mut h = wdef.hp;
-                if wdef.is_sudden { h *= 2.0; }
-                (h, 11.0)
-            };
-
-            let radius = base_radius;
-            let hp_scaled = hp * (if is_boss || is_mega {1.0} else {wave_scale});
+            let is_boss = rank == CreepRank::Boss;
 
             // mesh hlavniho kruhu se sdili podle polomeru, outline meshe/materialy jsou sdilene vsechny
             let circle_mesh = assets.main_meshes.entry((radius * 10.0) as u32).or_insert_with(|| meshes.add(Circle::new(radius))).clone();
-            let circle_mat = materials.add(ColorMaterial::from_color(creep_color));
+            let circle_mat = materials.add(ColorMaterial::from_color(color));
             let unit_mesh = assets.unit_circle.clone();
             let slow_mat = assets.slow_mat.clone();
 
@@ -72,11 +92,11 @@ pub fn spawn_wave_system(
                 Mesh2d(circle_mesh),
                 MeshMaterial2d(circle_mat),
                 Transform::from_xyz(base_x + jitter.x, base_y + jitter.y, 4.0),
-                Creep { is_boss, is_mega, base_radius, speed_mul: 1.0 },
+                Creep { is_boss, is_mega, base_radius: radius, speed_mul: 1.0, leak_cost },
                 side,
                 CreepMainCircle,
-                Health(hp_scaled),
-                MaxHealth(hp_scaled),
+                Health(hp),
+                MaxHealth(hp),
             )).with_children(|parent| {
                 // HP BAR - pozadi
                 parent.spawn((
@@ -91,10 +111,10 @@ pub fn spawn_wave_system(
                     HpBarFill,
                 ));
                 // HP text citelne nad barem
-                let label = if is_mega { format!("MEGA {:.0}", hp_scaled) } else if is_boss { format!("{:.0}", hp_scaled) } else { format!("{:.0}", hp_scaled) };
+                let label = if is_mega { format!("MEGA {:.0}", hp) } else { format!("{:.0}", hp) };
                 parent.spawn((
                     Text2d::new(label),
-                    TextFont { font_size: if is_mega || is_boss { 12.0 } else { 10.0 }, ..default() },
+                    TextFont { font_size: if rank == CreepRank::Normal { 10.0 } else { 12.0 }, ..default() },
                     TextColor(Color::WHITE),
                     Transform::from_xyz(0.0, radius + 26.0, 0.4),
                     HpBarText,
@@ -112,9 +132,11 @@ pub fn spawn_wave_system(
                 ));
             });
         }
-        }
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CreepRank { Normal, Elite, Boss }
 
 pub fn move_creeps_maze(
     mut commands: Commands,
@@ -300,14 +322,15 @@ pub fn despawn_dead_and_count(
     mut commands: Commands,
     mut sides: ResMut<Sides>,
     mut diamonds: ResMut<Diamonds>,
+    mut over: ResMut<MatchOver>,
     q_creeps: Query<(Entity, &Transform, &Health, &Creep, &Side, Option<&SentUnit>), With<Creep>>,
 ) {
     let mut dead: Vec<(Entity, Side, bool, bool, bool)> = Vec::new(); // (entity, lajna, boss, mega, odeslana jednotka)
-    let mut out: Vec<(Entity, Side, Option<i32>)> = Vec::new();       // (entity, lajna, cena odeslane jednotky; None = bezny creep)
+    let mut out: Vec<(Entity, Side, u32, Option<i32>)> = Vec::new();  // (entity, lajna, cena v zivotech, cena odeslane jednotky; None = bezny creep)
     for (e, tf, hp, creep, &side, unit) in q_creeps.iter() {
         if hp.0 <= 0.0 { dead.push((e, side, creep.is_boss, creep.is_mega, unit.is_some())); }
         else if tf.translation.y < crate::constants::LANE_Y - crate::constants::LANE_H / 2.0 - 10.0 {
-            out.push((e, side, unit.map(|u| u.cost)));
+            out.push((e, side, creep.leak_cost, unit.map(|u| u.cost)));
         }
     }
     for (e, side, is_boss, is_mega, is_unit) in dead {
@@ -321,14 +344,18 @@ pub fn despawn_dead_and_count(
         }
         else if is_boss { st.gold += 25; } else { st.gold += 8; }
     }
-    for (e, side, sent_cost) in out {
+    for (e, side, leak_cost, sent_cost) in out {
         commands.entity(e).despawn_recursive();
-        // pretahovana o zivoty: komu creep projde, ztrati 1, souper 1 ziska (dohromady vzdy TOTAL_LIVES)
+        if over.0.is_some() { continue; } // po konci zapasu se uz nic nepocita
+        // pretahovana o zivoty: komu creep projde, ztrati leak_cost, souper je ziska (dohromady vzdy TOTAL_LIVES)
         let loser = side;
         let winner = side.other();
-        if sides.get(loser).lives > 0 {
-            sides.get_mut(loser).lives -= 1;
-            sides.get_mut(winner).lives = (sides.get(winner).lives + 1).min(TOTAL_LIVES);
+        let lost = leak_cost.min(sides.get(loser).lives);
+        sides.get_mut(loser).lives -= lost;
+        sides.get_mut(winner).lives = (sides.get(winner).lives + lost).min(TOTAL_LIVES);
+        if sides.get(loser).lives == 0 {
+            over.0 = Some(winner);
+            println!("KONEC ZAPASU - vitez {:?}", winner);
         }
         // poslana jednotka prosla: odesilatel dostane cast ceny zpet jako gold
         if let Some(cost) = sent_cost {
@@ -360,6 +387,8 @@ pub fn send_unit_system(
     mut pressed: Local<Option<u8>>, // ktera jednotka je prave stisknuta
     mut moved: Local<f32>,          // kolik se prst pohnul od stisku
     mut sides: ResMut<Sides>,
+    round: Res<RoundState>,
+    over: Res<MatchOver>,
     assets: Res<CreepAssets>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -377,6 +406,9 @@ pub fn send_unit_system(
             if *moved <= TAP_MOVE_MAX { kind = Some(item.0); }
         }
         let Some(kind) = kind else { continue; };
+        if over.0.is_some() { continue; }
+        // posilat jde jen behem kola, v pauze ne
+        if round.phase != RoundPhase::Running { println!("Posilat jde jen behem kola"); continue; }
         let def = get_unit_def(kind);
         let st = sides.get_mut(Side::Player);
         if st.gold < def.cost { println!("Malo gold na {}: potreba {} mas {}", def.name, def.cost, st.gold); continue; }
@@ -410,7 +442,7 @@ pub fn spawn_sent_unit(
     let air = is_air(kind);
     let mut ec = commands.spawn((
         Transform::from_xyz(x, y, if air { 4.6 } else { 4.0 }), // letajici nad zemnimi
-        Creep { is_boss: false, is_mega: false, base_radius: radius, speed_mul: def.speed_mul },
+        Creep { is_boss: false, is_mega: false, base_radius: radius, speed_mul: def.speed_mul, leak_cost: LEAK_NORMAL },
         CreepMainCircle,
         Health(def.hp),
         MaxHealth(def.hp),
@@ -712,21 +744,20 @@ const GUARDIAN_SPEED_MUL: f32 = 1.5;          // rychlost = 150 % beznych creepu
 const GUARDIAN_RADIUS: f32 = 14.0;
 const GUARDIAN_ATTACK_DIST: f32 = CELL * 0.9; // z jake vzdalenosti od veze ji znici
 
-// vybehne 2 s pred kazdou vlnou; sloupec: prednostne horni bunka bez cesty (kapsa), jinak nahodne jako creepi
+// vybehne 2 s pred kazdym kolem; sloupec: prednostne horni bunka bez cesty (kapsa), jinak nahodne jako creepi
 pub fn guardian_spawn_system(
     mut commands: Commands,
-    timer: Res<CreepTimer>,
+    mut round: ResMut<RoundState>,
     wave: Res<WaveCount>,
     paused: Res<WavePaused>,
     sides: Res<Sides>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut last_wave: Local<u32>, // pro kterou vlnu uz hlidac vybehl
 ) {
     let next = wave.0 + 1;
-    if paused.0 || next > MAX_WAVES || *last_wave == next { return; }
-    if timer.0.remaining_secs() > GUARDIAN_LEAD_SECS { return; }
-    *last_wave = next;
+    if paused.0 || round.phase != RoundPhase::Pause || round.guardian_sent { return; }
+    if round.timer.remaining_secs() > GUARDIAN_LEAD_SECS { return; }
+    round.guardian_sent = true;
     let mut rng = rand::thread_rng();
     // hlidac vybehne na kazde lajne zvlast
     for side in Side::ALL {

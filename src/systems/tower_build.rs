@@ -1,7 +1,7 @@
 
 use bevy::prelude::*;
 use crate::components::{Side, SwitchViewButton, SwitchViewLabel, Tower, Selling, UpgradeLabel, SellLabel, RangeRing, RangeRingNext, HoverHighlight, TowerLevelText, PauseButtonUI, BuildPreview, BuildToggleButton, BuildPanel, BuildPanelItem, SendToggleButton, SendPanel, TowerActionPanel, UpgradeButton, SellButton, SelectionMarker, SafeRoot};
-use crate::resources::{HoverCell, SelectedCell, Sides, ViewSide, WavePaused, HeldBuilding, PanelsOpen, InputPointer, SafeInsets};
+use crate::resources::{HoverCell, SelectedCell, Sides, ViewSide, MatchOver, WavePaused, HeldBuilding, PanelsOpen, InputPointer, SafeInsets};
 use crate::constants::{CELL, LANE_H, LANE_W, CAM_BASE_Y, tower_icon_path, MAX_TOWER_LEVEL, SELL_SECONDS, SELL_REFUND};
 use crate::tower_def::{get_tower_def, get_total_spent_gold};
 use crate::utils::{grid_to_world, compute_path};
@@ -231,7 +231,9 @@ pub fn mouse_click_select_system(
 pub fn keyboard_pause_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut paused: ResMut<WavePaused>,
+    over: Res<MatchOver>,
 ) {
+    if over.0.is_some() { return; } // po konci zapasu uz pauza nejde zrusit
     if keys.just_pressed(KeyCode::Space) {
         paused.0 = !paused.0;
     }
@@ -240,7 +242,9 @@ pub fn keyboard_pause_system(
 pub fn pause_button_system_top_left(
     interaction_query: Query<&Interaction, (Changed<Interaction>, With<PauseButtonUI>)>,
     mut paused: ResMut<WavePaused>,
+    over: Res<MatchOver>,
 ) {
+    if over.0.is_some() { return; }
     for interaction in interaction_query.iter() {
         if *interaction == Interaction::Pressed {
             paused.0 = !paused.0;

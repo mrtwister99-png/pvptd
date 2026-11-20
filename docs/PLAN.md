@@ -29,14 +29,14 @@ Tohle je nejvíc práce, ale připraví to půdu i pro online: online soupeř je
 - [x] Na soupeřově lajně nejde stavět (jen se dívat).
 
 ### Krok 2 – kola, životy, výhra
-- [ ] Kolo = vlna normálních creepů + 1 větší, každé 5. kolo boss, pauza 7 s mezi koly.
-- [ ] Vlny rostou, v pozdních kolech rychleji (pojistka ~15 min).
-- [ ] Průnik: normální 1 / větší 2 / boss 3–5 životů. (Přetahovaná 15/15 už funguje, zatím vše za 1.)
-- [ ] Obrazovka výhry / prohry, návrat do menu.
+- [x] Kolo = vlna normálních creepů + 1 větší, každé 5. kolo boss, pauza 7 s mezi koly. (Na začátku 15 s stavba. Kolo končí, když z obou lajn zmizí creepi vlny, nejpozději po 60 s.)
+- [x] Vlny rostou, v pozdních kolech rychleji (od kola 20 +15 % HP za kolo). Limit 30 vln zrušen.
+- [x] Průnik: normální 1 / větší 2 / boss 4 životy, poslané jednotky 1.
+- [x] Obrazovka výhry / prohry, návrat do menu (nový zápas začne od nuly).
 
 ### Krok 3 – ekonomika a posílání soupeři
 - [ ] Start 30 g, income 10, tick 7 s, gold za zabití.
-- [ ] Poslaná jednotka se objeví na **soupeřově** lajně a trvale zvedne income.
+- [x] Poslaná jednotka se objeví na **soupeřově** lajně a trvale zvedne income. Posílat jde jen během kola.
 - [ ] Posílat jde neomezeně, dokud je gold, všechny jednotky odemčené.
 
 ### Krok 4 – náhodná stavba a spojování (merge)

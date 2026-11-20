@@ -7,7 +7,7 @@ mod wave_def;
 mod utils;
 mod systems;
 mod menu;
-use constants::{COLS, ROWS, CELL, LANE_W, LANE_H, LANE_Y, FINISH_EXTRA_ROWS, SAFE_TOP, SAFE_BOTTOM};
+use constants::{COLS, ROWS, CELL, LANE_W, LANE_H, LANE_Y, FINISH_EXTRA_ROWS, SAFE_TOP, SAFE_BOTTOM, CAM_BASE_Y};
 use resources::*;
 use components::*;
 use utils::{compute_path, grid_to_world};
@@ -30,7 +30,8 @@ pub fn main() {
         .add_systems(OnEnter(AppState::Menu), spawn_menu)
         .add_systems(OnExit(AppState::Menu), despawn_menu)
         .add_systems(Update, menu_button_system.run_if(in_state(AppState::Menu)))
-        .insert_resource(CreepTimer(Timer::from_seconds(8.0, TimerMode::Repeating)))
+        .insert_resource(RoundState::default())
+        .insert_resource(MatchOver::default())
         .insert_resource(WavePaused(false))
         .insert_resource(Sides::default())
         .insert_resource(ViewSide(Side::Player))
@@ -49,6 +50,7 @@ pub fn main() {
         .insert_resource(HealRingPool::default())
         .insert_resource(SafeInsets::default())
         .add_systems(OnEnter(AppState::Playing), (setup, adopt_ui_system).chain())
+        .add_systems(OnExit(AppState::Playing), cleanup_game)
         .add_systems(OnEnter(AppState::Playing), (setup_damage_pool, setup_bullet_pool, setup_creep_assets, setup_particle_pool, setup_bolt_pool, setup_heal_ring_pool))
         .add_systems(Update, (
             // zadny hrac - jen mys / klik
@@ -81,9 +83,9 @@ pub fn main() {
             bullet_hit,
             update_debuffs,
             despawn_dead_and_count,
-            spawn_wave_system,
+            round_system,
             update_ui,
-            update_wave_timer.after(spawn_wave_system), // 1.2: UI timer az po ticku timeru
+            update_wave_timer.after(round_system), // UI odpocet az po ticku kola
             update_hp_display,
             update_hp_bar,
             update_outline,
@@ -107,8 +109,38 @@ pub fn main() {
             cheat_button_system,
             tower_aura_system,
             switch_view_system,
+            game_over_system,
+            game_over_button_system,
         ).run_if(in_state(AppState::Playing)))
         .run();
+}
+
+// odchod ze zapasu (do menu): smazat vsechno herni (krome kamery) a vratit stav na zacatek,
+// aby dalsi HRAT zacal novy zapas
+fn cleanup_game(
+    mut commands: Commands,
+    q: Query<Entity, (Or<(With<Transform>, With<Node>)>, Without<Camera>, Without<Parent>, Without<Window>)>,
+    mut cam: Query<&mut Transform, With<Camera2d>>,
+) {
+    for e in q.iter() { commands.entity(e).despawn_recursive(); }
+    if let Ok(mut tf) = cam.get_single_mut() { *tf = Transform::from_xyz(0.0, CAM_BASE_Y, 0.0); }
+    commands.insert_resource(Sides::default());
+    commands.insert_resource(ViewSide(Side::Player));
+    commands.insert_resource(RoundState::default());
+    commands.insert_resource(MatchOver::default());
+    commands.insert_resource(WavePaused(false));
+    commands.insert_resource(WaveCount(0));
+    commands.insert_resource(SelectedCell(None));
+    commands.insert_resource(HoverCell(None));
+    commands.insert_resource(HeldBuilding(None));
+    commands.insert_resource(PanelsOpen::default());
+    // pooly: jejich entity byly smazany, setup je vytvori znovu
+    commands.insert_resource(DamageNumberPool::default());
+    commands.insert_resource(BulletPool::default());
+    commands.insert_resource(CreepGrid::default());
+    commands.insert_resource(ParticlePool::default());
+    commands.insert_resource(BoltPool::default());
+    commands.insert_resource(HealRingPool::default());
 }
 
 // test na PC: s promennou prostredi AUTOPLAY=1 se preskoci menu a rovnou zacne zapas

@@ -25,9 +25,22 @@ pub const START_GOLD: i32 = 150;  // zatim puvodni hodnota, krok 3 ji zmeni na 3
 pub const START_LIVES: u32 = 15;  // oba zacinaji s 15, dohromady 30 (pretahovana)
 pub const TOTAL_LIVES: u32 = 30;
 
+// === KOLA ===
+pub const BUILD_PHASE_SECS: f32 = 15.0;  // prvni pauza na zacatku zapasu (stavba)
+pub const ROUND_PAUSE_SECS: f32 = 7.0;   // pauza mezi koly
+pub const ROUND_MAX_SECS: f32 = 60.0;    // kolo skonci nejpozdeji po tolika sekundach
+pub const BOSS_EVERY: u32 = 5;           // kazde 5. kolo prijde i boss
+pub const ELITE_HP_MUL: f32 = 3.0;       // vetsi creep ma tolikrat vic HP nez normalni
+pub const BOSS_HP_MUL: f32 = 8.0;        // boss (kdyz vlna nema vlastni HP bosse) = HP normalniho x tolik
+pub const LATE_ROUND: u32 = 20;          // od tohoto kola HP roste navic rychleji (pojistka ~15 min)
+pub const LATE_ROUND_HP_GROWTH: f32 = 1.15; // ...o 15 % za kazde dalsi kolo
+// kolik zivotu stoji pruchod (souper je ziska)
+pub const LEAK_NORMAL: u32 = 1;
+pub const LEAK_ELITE: u32 = 2;
+pub const LEAK_BOSS: u32 = 4;
+
 pub const CREEP_BASE_SPEED: f32 = 85.0;
 pub const MAX_TOWER_LEVEL: u32 = 5;
-pub const MAX_WAVES: u32 = 30;       // celkem vln, potom uz zadne nechodi
 pub const SELL_SECONDS: f32 = 3.0;   // jak dlouho trva prodej veze (behem toho jeste strili)
 pub const SELL_REFUND: f32 = 0.75;   // kolik z celkove investice se vrati
 pub const LEAK_GOLD_RATIO: f32 = 0.2; // kdyz tvoje jednotka projde: tolik z ceny se vrati jako gold

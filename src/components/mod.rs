@@ -46,6 +46,7 @@ pub struct Creep {
     pub is_mega: bool,
     pub base_radius: f32,
     pub speed_mul: f32, // nasobek rychlosti chuze (1.0 = bezna)
+    pub leak_cost: u32, // kolik zivotu stoji, kdyz projde (normalni 1, vetsi 2, boss vic)
 }
 
 #[derive(Component)] pub struct CreepMainCircle;
@@ -146,6 +147,10 @@ pub struct Bullet {
 #[derive(Component)] pub struct SwitchViewButton;
 #[derive(Component)] pub struct SwitchViewLabel;
 #[derive(Component)] pub struct LivesText;
+
+// obrazovka konce zapasu (VYHRA / PROHRA) a tlacitko zpet do menu
+#[derive(Component)] pub struct GameOverRoot;
+#[derive(Component)] pub struct GameOverMenuButton;
 
 // lecici jednotka (Priest): kazdych 0.5 s doplni HP creepum v radiu (data z wave_def::heal_for)
 #[derive(Component)] pub struct Heal { pub radius: f32, pub hps: f32, pub tick: Timer }
