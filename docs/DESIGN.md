@@ -30,29 +30,62 @@ Rychlá a pestrá mobilní **1v1 PvP tower defense**. Kořeny má v Line Tower W
 
 ## 4. Rozhodnuto
 
-_(zatím nic – doplníme během probírání)_
+### A. Zápas a kola (2026-11-10)
+
+- **Délka zápasu**: na začátku hry (málo karet) cca **4–5 min**, se silnějšími kartami se prodlužuje, max **~15 min**.
+- **Kolo** = jedna automatická vlna: hromada normálních creepů + **jeden větší** creep. Každé kolo je vlna silnější.
+- **Každé 5. kolo** přijde navíc **boss**.
+- **Posílání**: hráč posílá jednotky soupeři **během vlny**. Po vlně je krátká pauza, pak začne další kolo a posílá se znovu.
+- **Automatické vlny chodí vždy** a k nim navíc to, co pošle soupeř.
+- **Životy jako přetahovaná**: dohromady je **30 životů**, oba hráči začínají s **15**. Když mi projde creep, já ztratím 1 a soupeř získá 1. Prohrává ten, kdo má 0, takže vítěz má všech 30.
+- **Cena průniku**: normální creep **1** život, větší creep **2**, boss **3–5** (doladit).
+- **Matchmaking hlavně podle síly balíčku** (úrovně karet), aby proti sobě hráli podobně silní.
+- **Pojistka**: v pozdějších kolech vlny sílí čím dál rychleji, takže zápas skončí nejpozději kolem ~15 min.
+- **Časování**: posílat se dá **celou dobu kola**, mezi koly je pauza **7 s**.
+- **Stavět a vylepšovat věže se dá kdykoliv**, i během vlny.
+
+### C. Karty a spojování věží (2026-11-20)
+
+- **Karty jsou věže i jednotky.** Získávají se po zápase z **truhel** (a dalších odměn).
+- **Balíček**: do zápasu si hráč vybere **5 věží**.
+- **Úroveň karty zvedá všechny statistiky** dané věže nebo jednotky. U jednotek to znamená silnější posílané creepy.
+- **Stavění v zápase**: tlačítko „postav“ vytvoří **náhodnou** věž z 5 vybraných, rank 1.
+  Cena: první **10 g**, každá další o **+10 g** víc (10, 20, 30…).
+- **Spojování (merge)**: dvě **stejné** věže stejného ranku se spojí → vznikne **náhodná věž z balíčku o rank vyšší**.
+- **Max rank 7** (rank 1 + až 6 spojení; na rank 7 je potřeba 64 staveb).
+- **Bludiště zůstává**: hráč si cestu staví sám, jak to v rychlosti zvládne. Spojení věže z bludiště odebere, takže se cesta změní (je to i taktika).
+- **Spojení přetažením**: věž přetáhneš na stejnou věž a nová věž vznikne **na místě, kam jsi táhl**.
+- **Jednotky**: posílat se dá **neomezeně, dokud máš gold**. V zápase jsou **odemčené všechny jednotky**. Sílu jim zvedají **jen karty** (z truhel), během zápasu se jednotky nevylepšují.
+
+- **V zápase se jen staví a spojuje**, žádná vylepšení typu věže za gold.
+
+### D. Soupeř a obrazovka (2026-11-20)
+
+- **Začínáme 1v1 proti botovi** v telefonu (bez serveru). Online proti lidem až potom.
+- **Přepínání mezi lajnami**: hráč vidí svoje bludiště a tlačítkem/swipem se přepne na soupeřovo.
+
+### B. Ekonomika (2026-11-20)
+
+- **Start**: **30 g** (hned jdou postavit 2 věže: 10 + 20 g), income **10**.
+- **Income tick každých 7 s**: dostaneš tolik goldu, kolik máš income.
+- **Poslaná jednotka trvale zvedne income** (např. Sheep za 5 g → +1).
+- **Gold za zabití creepa**: ano.
+- Tím se **ruší** dosavadní vylepšování lvl 1–5 za gold (Basic Tower → Phantom Archer…). Síla věže = úroveň karty × rank v zápase.
 
 ## 5. Otevřené otázky
 
-### A. Zápas a kola
-- Jak dlouho má trvat jeden zápas? (3 min? 5 min? 10 min?)
-- Co je „kolo“? Pevný čas (např. 30 s), nebo dokud nepadne vlna?
-- Je mezi koly pauza na stavění, nebo se staví pořád?
-- Jdou i **automatické vlny** (jako v originále), nebo jen to, co pošle soupeř?
-- Jak se vyhrává: životy na nulu? Limit kol a pak rozhoduje počet životů?
-- Co když se zápas táhne – zrychlení / sudden death (už máš „SUDDEN DEATH“ vlnu)?
+### A. Zápas a kola – doladit čísla při testování
+- Délka jednoho kola (kolik creepů, rozestupy), od kterého kola se zrychluje růst vln.
+- Přesná cena průniku bosse (3, 4, nebo 5).
 
-### B. Ekonomika
-- Zůstává income tick + permanentní income za posílání?
-- Limit posílání za kolo (proti spamu)?
-- Startovní gold a income?
+### B. Ekonomika – doladit čísla při testování
+- Ceny jednotek a kolik income dávají, gold za zabití podle typu creepa.
 
-### C. Karty a progres (nejdůležitější kvůli „žádné P2W“)
-- Co jsou karty: věže, posílané jednotky, nebo obojí?
-- Bere si hráč do zápasu **balíček** (např. 5 věží z 7+), nebo má vždy všechny?
-- Vylepšení karet mimo zápas – mění to síly v zápase? (Pokud ano, je to riziko nerovnosti; alternativa: v ranked se úrovně **srovnají**, kartu jen musíš mít odemčenou.)
-- Jak se karty získávají zdarma (odměny za výhry, denní úkoly, truhly)?
-- Upgrady věží v zápase (lvl 1–5) zůstávají?
+### C. Karty a spojování – doladit
+- Úrovně karet dávají sílu a férovost řeší matchmaking podle síly balíčku. Proto musí být vylepšování **jen za věci získané hraním, nikdy za peníze**.
+- Rank 7 = 64 staveb ≈ 21 000 g při ceně +10 g. Ověřit při testování, jestli je to za 10–15 min reálné, případně dát strop ceny.
+- Jsou v zápase **vylepšení celého typu věže** (zaplatíš a všechny arrow jsou silnější), nebo jen stavění a spojování?
+- Jak velký rozdíl mezi úrovní karty 1 a max? (Malý = víc skillu, velký = víc progresu.)
 
 ### D. Multiplayer / technika
 - Online proti lidem hned, nebo nejdřív proti botovi (AI soupeř) a online až později?
