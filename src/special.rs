@@ -48,3 +48,26 @@ pub fn spikes_poison(rank: u32) -> f32 { if rank >= 7 { 0.25 } else { 0.0 } } //
 // Barracks: poslane jednotky (plati nejvyssi Barracks na poli)
 pub fn barracks_hp(rank: u32) -> f32 { 0.10 * rank.clamp(1, 7) as f32 }
 pub fn barracks_speed(rank: u32) -> f32 { 0.04 * rank.clamp(1, 7) as f32 }
+
+// popis schopnosti veze pro panel se staty (jen ASCII, vychozi font nema diakritiku)
+pub fn describe(kind: u8, rank: u32) -> String {
+    let pct = |x: f32| (x * 100.0).round() as i32;
+    match kind {
+        HARPOON => "Strili jen na letajici a srazi je na zem".to_string(),
+        GEYSER => "Pulz odhodi pozemni creepy v okoli zpet".to_string(),
+        EXECUTIONER => {
+            let t = executioner_threshold(rank);
+            if t > 0.0 { format!("+{}% chybejiciho HP, poprava pod {}% HP (ne boss)", pct(executioner_missing_pct(rank)), pct(t)) }
+            else { format!("+{}% chybejiciho HP", pct(executioner_missing_pct(rank))) }
+        }
+        VOODOO => format!("Znacka: {}% poskozeni dostanou i creepi kolem", pct(voodoo_share(rank))),
+        CURSE => format!("Kletba: +{}% poskozeni, vypne leceni a auru", pct(curse_mul(rank))),
+        ILLUSION => format!("Zmate creepa: jde nahodnym smerem az {:.0} px", illusion_dist(rank)),
+        TWIN => "Pri spojeni zustane na puvodnim miste nova vez R1".to_string(),
+        MINT => format!("Po kazdem kole +{} gold", mint_gold(rank)),
+        BELL => format!("Veze v okruhu: +{}% rychlost, +{}% poskozeni", pct(bell_rate(rank)), pct(bell_dmg(rank))),
+        SPIKES => match rank { 7 => "Past: vybuch, zpomali a otravi".to_string(), 5 | 6 => "Past: vybuch a zpomali".to_string(), _ => "Past: vybuch pod blizkym creepem".to_string() },
+        BARRACKS => format!("Tvoje poslane jednotky: +{}% HP, +{}% rychlost", pct(barracks_hp(rank)), pct(barracks_speed(rank))),
+        _ => String::new(),
+    }
+}

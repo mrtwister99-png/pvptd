@@ -122,6 +122,7 @@ pub fn main() {
             tower_drag_system,
             bot_system,
             special_towers_system.after(build_creep_grid),
+            tower_info_system,
         ).run_if(in_state(AppState::Playing)))
         .run();
 }
@@ -366,6 +367,20 @@ fn setup(
         p.spawn((Node { padding: UiRect::all(Val::Px(10.0)), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.8)))).with_children(|pp| {
             pp.spawn((Text::new("Hlidac: HAhaha - co to zkousis kamarade? Vsichni hrajeme Fair play !"), TextFont { font_size: 18.0, ..default() }, TextColor(Color::srgb(1.0, 0.85, 0.2))));
         });
+    });
+
+    // === nad tlacitky dole uprostred - staty vybrane veze / co postavi POSTAVIT ===
+    commands.spawn((Node {
+        position_type: PositionType::Absolute,
+        left: Val::Percent(50.0),
+        bottom: Val::Px(96.0 + SAFE_BOTTOM),
+        width: Val::Px(240.0),
+        margin: UiRect { left: Val::Px(-120.0), ..default() },
+        padding: UiRect::all(Val::Px(8.0)),
+        display: Display::None,
+        ..default()
+    }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.8)), TowerInfoPanel)).with_children(|p| {
+        p.spawn((Text::new(""), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE), TowerInfoText));
     });
 
     // === dole uprostred - POSTAVIT (zelena, prazdne policko) / PRODAT (cervena, vez); jen kdyz je vybrane policko ===

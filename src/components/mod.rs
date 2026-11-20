@@ -144,6 +144,9 @@ pub struct Bullet {
 #[derive(Component)] pub struct SwitchViewButton;
 #[derive(Component)] pub struct SwitchViewLabel;
 #[derive(Component)] pub struct LivesText;
+// panel se staty vybrane veze (nad tlacitky dole uprostred)
+#[derive(Component)] pub struct TowerInfoPanel;
+#[derive(Component)] pub struct TowerInfoText;
 
 // === znacky od specialnich vezi ===
 // Curse: creep dostava o `mul` vic poskozeni a nefunguje mu leceni ani aura

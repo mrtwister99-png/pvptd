@@ -101,3 +101,52 @@ pub fn game_over_button_system(
 ) {
     if q.iter().any(|i| *i == Interaction::Pressed) { next.set(AppState::Menu); }
 }
+
+// panel se staty: vybrana vez = jmeno, rank, poskozeni, rychlost, dosah, schopnost, prodej;
+// vybrane prazdne policko = z jakych vezi muze POSTAVIT vybrat
+pub fn tower_info_system(
+    selected: Res<crate::resources::SelectedCell>,
+    sides: Res<Sides>,
+    panels: Res<crate::resources::PanelsOpen>,
+    towers: Query<(&crate::components::Tower, Option<&crate::components::TowerMods>)>,
+    mut q_panel: Query<&mut Node, With<crate::components::TowerInfoPanel>>,
+    mut q_text: Query<&mut Text, With<crate::components::TowerInfoText>>,
+) {
+    use crate::constants::{ALL_TOWERS, SELL_REFUND, TOWER_POISON};
+    let show = selected.0.is_some() && !panels.send;
+    for mut n in q_panel.iter_mut() { let d = if show { Display::Flex } else { Display::None }; if n.display != d { n.display = d; } }
+    let Some((r, c)) = selected.0 else { return; };
+    let name_of = |k: u8| ALL_TOWERS.iter().find(|t| t.0 == k).map_or("?", |t| t.1);
+    let s = match towers.iter().find(|(t, _)| t.side == Side::Player && t.row == r && t.col == c) {
+        Some((t, mods)) => {
+            let def = crate::tower_def::get_tower_def(t.kind, t.level);
+            let title = if t.level > 5 { format!("{}+", def.name) } else { def.name.to_string() };
+            let mut lines = vec![format!("{}  ({} R{})", title.to_uppercase(), name_of(t.kind), t.level)];
+            let rate_mul = mods.map_or(1.0, |m| m.rate_mul);
+            let dmg_mul = mods.map_or(1.0, |m| m.dmg_mul);
+            if crate::special::shoots(t.kind) || matches!(t.kind, crate::special::GEYSER | crate::special::SPIKES) {
+                lines.push(format!("Poskozeni: {:.0}-{:.0}   Utoku: {:.2}/s", t.damage_min * dmg_mul, t.damage_max * dmg_mul, t.fire_rate * rate_mul));
+            }
+            if t.range > 0.0 { lines.push(format!("Dosah: {:.0}", t.range)); }
+            let mut extra = Vec::new();
+            if t.splash > 0.0 { extra.push(format!("plosne {:.0}", t.splash)); }
+            if t.slow_max > 0.0 { extra.push(format!("zpomaleni az {:.0}%", t.slow_max * 100.0)); }
+            if t.dot_dps > 0.0 { extra.push(format!("{} {:.1}/s na {:.0}s", if t.kind == TOWER_POISON { "jed" } else { "ohen" }, t.dot_dps, t.dot_duration)); }
+            if t.chain_targets > 0 { extra.push(format!("preskok na {} dalsi", t.chain_targets)); }
+            if t.push_chance > 0.0 { extra.push(format!("{:.0}% odhozeni", t.push_chance * 100.0)); }
+            if !extra.is_empty() { lines.push(extra.join(", ")); }
+            let special = crate::special::describe(t.kind, t.level);
+            if !special.is_empty() { lines.push(special); }
+            if rate_mul > 1.0 || dmg_mul > 1.0 { lines.push("Posilena od BELL".to_string()); }
+            lines.push(format!("Prodej: +{}G", (t.invested as f32 * SELL_REFUND) as i32));
+            lines.join("
+")
+        }
+        None => {
+            let deck: Vec<&str> = sides.get(Side::Player).deck.iter().map(|&k| name_of(k)).collect();
+            format!("POSTAVIT: nahodna vez R1 z balicku
+{}", deck.join(", "))
+        }
+    };
+    for mut t in q_text.iter_mut() { if t.0 != s { t.0 = s.clone(); } }
+}

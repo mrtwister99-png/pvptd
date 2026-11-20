@@ -46,6 +46,8 @@ pub fn bot_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut think: Local<f32>,
+    mut status: Local<u32>, // pocitadlo pro vypis stavu do logu
+    wave: Res<crate::resources::WaveCount>,
     towers: Query<(Entity, &Tower), Without<Selling>>,
     all_towers: Query<&Tower>,
 ) {
@@ -54,30 +56,42 @@ pub fn bot_system(
     if *think < BOT_THINK_SECS { return; }
     *think = 0.0;
     let me = Side::Bot;
-
-    // 1) spojeni: dvojice stejneho druhu a ranku (nejnizsi rank prvni). Uvolnene policko bot pozdeji zastavi znovu.
     let mine: Vec<TowerRef> = towers.iter().filter(|(_, t)| t.side == me).map(|(e, t)| TowerRef::of(e, t)).collect();
-    let mut pair: Option<(TowerRef, TowerRef)> = None;
-    for (i, a) in mine.iter().enumerate() {
-        for b in mine.iter().skip(i + 1) {
-            if a.kind == b.kind && a.rank == b.rank && a.rank < crate::constants::MAX_TOWER_LEVEL && pair.map_or(true, |(p, _)| a.rank < p.rank) {
-                // nova vez zustane na policku vys v bludisti (blize vstupu = dele strili), uvolni se to nizsi
-                pair = Some(if a.row >= b.row { (*b, *a) } else { (*a, *b) });
+    // kolik vezi chce bot mit: na zacatku 4, kazde kolo o 2 vic (max cele bludiste)
+    let want = (4 + 2 * wave.0 as usize).min(40);
+    *status += 1;
+    if *status % 12 == 0 {
+        let st = sides.get(me);
+        println!("BOT: gold {} income {:.0} vezi {}/{} (staveb {})", st.gold, st.income.amount, mine.len(), want, st.builds);
+    }
+
+    // 1) spojeni: dvojice stejneho druhu a ranku (nejnizsi rank prvni). Az kdyz ma bot aspon 6 vezi,
+    //    aby si na zacatku nerozbijel bludiste. Uvolnene policko pozdeji zastavi znovu.
+    if mine.len() >= 6 {
+        let mut pair: Option<(TowerRef, TowerRef)> = None;
+        for (i, a) in mine.iter().enumerate() {
+            for b in mine.iter().skip(i + 1) {
+                if a.kind == b.kind && a.rank == b.rank && a.rank < crate::constants::MAX_TOWER_LEVEL && pair.map_or(true, |(p, _)| a.rank < p.rank) {
+                    // nova vez zustane na policku vys v bludisti (blize vstupu = dele strili), uvolni se to nizsi
+                    pair = Some(if a.row >= b.row { (*b, *a) } else { (*a, *b) });
+                }
             }
         }
-    }
-    if let Some((from, to)) = pair {
-        if try_merge(&mut commands, &asset_server, &mut sides, me, from, to) { return; }
+        if let Some((from, to)) = pair {
+            if try_merge(&mut commands, &asset_server, &mut sides, me, from, to) { return; }
+        }
     }
 
-    // 2) stavba: dalsi volne policko z planu, ktere nezazdi cestu
-    // (behem kola obcas stavbu vynecha a radsi posle jednotku = investice do income)
-    let invest = round.phase == RoundPhase::Running && rand::thread_rng().gen_bool(0.3);
+    // 2) stavba: dalsi volne policko z planu; kdyz je plan plny, kterekoli volne policko. Nikdy nezazdi cestu.
+    //    Kdyz uz ma dost vezi, obcas stavbu vynecha a posle jednotku (investice do income).
+    let enough = mine.len() >= want;
+    let invest = enough && round.phase == RoundPhase::Running && rand::thread_rng().gen_bool(0.3);
     let st = sides.get(me);
     let cost = build_cost(st.builds);
     if st.gold >= cost && !invest {
-        let occupied: Vec<(usize, usize)> = mine.iter().map(|t| (t.row, t.col)).collect();
-        let next = bot_plan().into_iter().find(|&(r, c)| !st.grid.blocked[r][c] && !occupied.contains(&(r, c)) && keeps_path_open(&st.grid.blocked, r, c));
+        let free = |&(r, c): &(usize, usize)| !st.grid.blocked[r][c] && keeps_path_open(&st.grid.blocked, r, c);
+        let next = bot_plan().into_iter().find(free)
+            .or_else(|| (2..ROWS - 1).rev().flat_map(|r| (0..COLS).map(move |c| (r, c))).find(free));
         if let Some((r, c)) = next {
             if try_build_random(me, r, c, &mut commands, &mut sides, &asset_server) { return; }
         }
@@ -87,8 +101,10 @@ pub fn bot_system(
     if round.phase != RoundPhase::Running { return; }
     let Some(assets) = assets else { return; };
     let st = sides.get_mut(me);
-    // posila z goldu, ktery mu zbyl po stavbe, nebo kdyz se rozhodl investovat (pak az do poloviny goldu)
-    let budget = if invest { st.gold / 2 } else { st.gold - build_cost(st.builds) };
+    // dokud nema dost vezi, posila jen z velkeho prebytku (2x cena stavby); pak z goldu nad cenou dalsi stavby,
+    // pri investici az do poloviny goldu
+    let cost = build_cost(st.builds);
+    let budget = if invest { st.gold / 2 } else if enough { st.gold - cost } else { st.gold - 2 * cost };
     if budget <= 0 { return; }
     let pick = (1..=UNIT_COUNT).filter(|&k| get_unit_def(k).cost <= budget).max_by_key(|&k| get_unit_def(k).cost);
     let Some(kind) = pick else { return; };

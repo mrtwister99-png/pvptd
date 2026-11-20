@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 #[derive(Clone)]
-#[allow(dead_code)] // name a gold zustavaji v tabulce pro prehled (gold uz se nepouziva, stavba stoji 10/20/30...)
+#[allow(dead_code)] // gold zustava v tabulce pro prehled (uz se nepouziva, stavba stoji 10/20/30...)
 pub struct TowerDef {
     pub name: &'static str,
     pub gold: i32,

@@ -13,6 +13,6 @@ pub use tower_combat::{tower_shoot, move_bullets, bullet_hit, setup_bullet_pool,
 pub use creep::{round_system, move_creeps_maze, update_outline, update_hp_display, update_hp_bar, despawn_dead_and_count, setup_creep_assets, send_unit_system, income_system, enrage_system, enrage_flash_system, heal_system, guardian_spawn_system, guardian_system, HealRingPool, setup_heal_ring_pool, heal_ring_update_system, aura_system, shoot_back_system, tower_slow_system, shimmer_system, guardian_snipe_system, cheat_button_system, tower_aura_system};
 pub use debuff::{update_debuffs, update_damage_numbers, setup_damage_pool};
 pub use effects::{ParticlePool, BoltPool, setup_particle_pool, setup_bolt_pool, freeze_system, particle_spawn_system, particle_update_system, bolt_update_system, ignite_visual_system};
-pub use ui::{update_ui, update_wave_timer, game_over_system, game_over_button_system};
+pub use ui::{update_ui, update_wave_timer, game_over_system, game_over_button_system, tower_info_system};
 pub use bot::bot_system;
 pub use special_towers::special_towers_system;
