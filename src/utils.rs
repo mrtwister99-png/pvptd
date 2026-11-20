@@ -1,9 +1,11 @@
 use bevy::prelude::*;
 use std::collections::VecDeque;
-use crate::constants::{COLS, ROWS, CELL, LANE_W, LANE_H, LANE_X, LANE_Y};
+use crate::constants::{COLS, ROWS, CELL, LANE_W, LANE_H, LANE_Y};
+use crate::components::Side;
 
-pub fn world_to_grid(x: f32, y: f32) -> Option<(usize, usize)> {
-    let left = LANE_X - LANE_W / 2.0;
+// policko na lajne dane strany (None = bod lezi mimo jeji mrizku)
+pub fn world_to_grid(side: Side, x: f32, y: f32) -> Option<(usize, usize)> {
+    let left = side.lane_x() - LANE_W / 2.0;
     let bottom = LANE_Y - LANE_H / 2.0;
     if x < left || x > left + LANE_W { return None; }
     if y < bottom || y > bottom + LANE_H { return None; }
@@ -13,8 +15,8 @@ pub fn world_to_grid(x: f32, y: f32) -> Option<(usize, usize)> {
     Some((row, col))
 }
 
-pub fn grid_to_world(row: usize, col: usize) -> Vec2 {
-    let left = LANE_X - LANE_W / 2.0;
+pub fn grid_to_world(side: Side, row: usize, col: usize) -> Vec2 {
+    let left = side.lane_x() - LANE_W / 2.0;
     let bottom = LANE_Y - LANE_H / 2.0;
     Vec2::new(
         left + col as f32 * CELL + CELL / 2.0,

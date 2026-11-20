@@ -1,9 +1,23 @@
 
 use bevy::prelude::*;
 
+// === STRANA ZAPASU (1v1) ===
+// Kazda vez, creep a hlidac patri jedne strane. Creep stoji vzdy na lajne strany, ktere skodi.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Side { Player, Bot }
+
+impl Side {
+    pub const ALL: [Side; 2] = [Side::Player, Side::Bot];
+    pub fn idx(self) -> usize { match self { Side::Player => 0, Side::Bot => 1 } }
+    pub fn other(self) -> Side { match self { Side::Player => Side::Bot, Side::Bot => Side::Player } }
+    // stred lajny teto strany ve svete (osa X)
+    pub fn lane_x(self) -> f32 { crate::constants::LANE_X + self.idx() as f32 * crate::constants::SIDE_OFFSET_X }
+}
+
 // === TOWER ===
 #[derive(Component)]
 pub struct Tower {
+    pub side: Side,
     pub damage: f32,
     pub damage_min: f32,
     pub damage_max: f32,
@@ -70,7 +84,6 @@ pub struct Bullet {
 // UI
 #[derive(Component)] pub struct GoldText;
 #[derive(Component)] pub struct DiamondText;
-#[derive(Component)] pub struct EscapedText;
 #[derive(Component)] pub struct WaveText;
 #[derive(Component)] pub struct WaveTimerText;
 #[derive(Component)] pub struct PauseButtonUI;
@@ -107,10 +120,9 @@ pub struct Bullet {
 #[derive(Component)] pub struct SellLabel;
 #[derive(Component)] pub struct Selling { pub timer: Timer }
 
-// kruhy dosahu veze (aktualni a po upgradu) a rezervovane tlacitko vpravo nahore
+// kruhy dosahu veze (aktualni a po upgradu)
 #[derive(Component)] pub struct RangeRing;
 #[derive(Component)] pub struct RangeRingNext;
-#[derive(Component)] pub struct ReservedButton;
 
 // odhozeni creepa dozadu (smerem na start) o `remaining` jednotek, rychlosti `speed` (jednotek/s)
 #[derive(Component)] pub struct Knockback { pub remaining: f32, pub speed: f32 }
@@ -129,6 +141,11 @@ pub struct Bullet {
 
 // hlidac: nesmrtelna jednotka (bez Creep = veze ani strely ji nevidi), pred vlnou probehne lajnu a niCi veze, ktere blokuji cestu
 #[derive(Component)] pub struct Guardian;
+
+// tlacitko vpravo nahore: prepnout kameru na lajnu soupere a zpet
+#[derive(Component)] pub struct SwitchViewButton;
+#[derive(Component)] pub struct SwitchViewLabel;
+#[derive(Component)] pub struct LivesText;
 
 // lecici jednotka (Priest): kazdych 0.5 s doplni HP creepum v radiu (data z wave_def::heal_for)
 #[derive(Component)] pub struct Heal { pub radius: f32, pub hps: f32, pub tick: Timer }

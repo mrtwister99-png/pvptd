@@ -7,7 +7,7 @@ mod wave_def;
 mod utils;
 mod systems;
 mod menu;
-use constants::{COLS, ROWS, CELL, LANE_W, LANE_H, LANE_X, LANE_Y, FINISH_EXTRA_ROWS, SAFE_TOP, SAFE_BOTTOM, CAM_BASE_Y, BASE_INCOME};
+use constants::{COLS, ROWS, CELL, LANE_W, LANE_H, LANE_Y, FINISH_EXTRA_ROWS, SAFE_TOP, SAFE_BOTTOM};
 use resources::*;
 use components::*;
 use utils::{compute_path, grid_to_world};
@@ -26,28 +26,21 @@ pub fn main() {
         }))
         .init_state::<AppState>()
         .add_systems(Startup, spawn_camera)
-        .add_systems(OnEnter(AppState::Menu), spawn_menu)
-        .add_systems(OnExit(AppState::Menu), despawn_menu)
-        .add_systems(Update, menu_button_system.run_if(in_state(AppState::Menu)))
-        .init_state::<AppState>()
-        .add_systems(Startup, spawn_camera)
+        .add_systems(Startup, autoplay_system)
         .add_systems(OnEnter(AppState::Menu), spawn_menu)
         .add_systems(OnExit(AppState::Menu), despawn_menu)
         .add_systems(Update, menu_button_system.run_if(in_state(AppState::Menu)))
         .insert_resource(CreepTimer(Timer::from_seconds(8.0, TimerMode::Repeating)))
         .insert_resource(WavePaused(false))
-        .insert_resource(EscapedCount(0))
-        .insert_resource(Gold(150))
+        .insert_resource(Sides::default())
+        .insert_resource(ViewSide(Side::Player))
         .insert_resource(Diamonds(0))
         .insert_resource(WaveCount(0))
-        .insert_resource(Income { amount: BASE_INCOME, carry: 0.0, sent: [0; 32], timer: Timer::from_seconds(7.0, TimerMode::Repeating) })
         .insert_resource(InputPointer::default())
         .insert_resource(HoverCell(None))
         .insert_resource(SelectedCell(None))
         .insert_resource(HeldBuilding(None))
         .insert_resource(PanelsOpen::default())
-        .insert_resource(Grid { blocked: [[false; COLS]; ROWS] })
-        .insert_resource(PathMap { dist: [[None; COLS]; ROWS] })
         .insert_resource(DamageNumberPool::default())
         .insert_resource(BulletPool::default())
         .insert_resource(CreepGrid::default())
@@ -113,57 +106,70 @@ pub fn main() {
             safe_area_system,
             cheat_button_system,
             tower_aura_system,
+            switch_view_system,
         ).run_if(in_state(AppState::Playing)))
         .run();
 }
 
+// test na PC: s promennou prostredi AUTOPLAY=1 se preskoci menu a rovnou zacne zapas
+fn autoplay_system(mut next: ResMut<NextState<AppState>>) {
+    if std::env::var("AUTOPLAY").is_ok() { next.set(AppState::Playing); }
+}
+
 fn setup(
     mut commands: Commands,
-    grid: Res<Grid>,
-    mut path: ResMut<PathMap>,
+    mut sides: ResMut<Sides>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     // kamera se spousti uz v menu (menu::spawn_camera)
-    path.dist = compute_path(&grid.blocked);
+    for st in sides.0.iter_mut() { st.path.dist = compute_path(&st.grid.blocked); }
 
-    // pozadi lane
-    commands.spawn((
-        Sprite { color: Color::srgb(0.16, 0.16, 0.18), custom_size: Some(Vec2::new(LANE_W, LANE_H)), ..default() },
-        Transform::from_xyz(LANE_X, LANE_Y, -10.0),
-    ));
+    // dve lajny: hracova a bota (posunuta o SIDE_OFFSET_X); bot ma lehce cervenejsi pozadi
+    for side in Side::ALL {
+        let lane_x = side.lane_x();
+        let bg = if side == Side::Player { Color::srgb(0.16, 0.16, 0.18) } else { Color::srgb(0.2, 0.15, 0.16) };
+        commands.spawn((
+            Sprite { color: bg, custom_size: Some(Vec2::new(LANE_W, LANE_H)), ..default() },
+            Transform::from_xyz(lane_x, LANE_Y, -10.0),
+        ));
 
-    for r in 0..ROWS {
-        for c in 0..COLS {
-            let pos = grid_to_world(r, c);
-            let is_extra = r < FINISH_EXTRA_ROWS;
-            commands.spawn((
-                Sprite {
-                    color: if is_extra { Color::srgba(0.18, 0.18, 0.2, 0.5) } else { Color::srgba(0.22, 0.22, 0.24, 0.6) },
-                    custom_size: Some(Vec2::new(CELL - 3.0, CELL - 3.0)),
-                    ..default()
-                },
-                Transform::from_xyz(pos.x, pos.y, -9.0),
-            ));
+        for r in 0..ROWS {
+            for c in 0..COLS {
+                let pos = grid_to_world(side, r, c);
+                let is_extra = r < FINISH_EXTRA_ROWS;
+                commands.spawn((
+                    Sprite {
+                        color: if is_extra { Color::srgba(0.18, 0.18, 0.2, 0.5) } else { Color::srgba(0.22, 0.22, 0.24, 0.6) },
+                        custom_size: Some(Vec2::new(CELL - 3.0, CELL - 3.0)),
+                        ..default()
+                    },
+                    Transform::from_xyz(pos.x, pos.y, -9.0),
+                ));
+            }
         }
-    }
 
-    let left = LANE_X - LANE_W / 2.0;
-    let bottom = LANE_Y - LANE_H / 2.0;
-    for c in 0..=COLS {
-        let x = left + c as f32 * CELL;
-        commands.spawn((Sprite { color: Color::srgba(0.35, 0.35, 0.38, 0.6), custom_size: Some(Vec2::new(2.0, LANE_H)), ..default() }, Transform::from_xyz(x, LANE_Y, -8.5), GridLine));
-    }
-    for r in 0..=ROWS {
-        let y = bottom + r as f32 * CELL;
-        commands.spawn((Sprite { color: Color::srgba(0.35, 0.35, 0.38, 0.6), custom_size: Some(Vec2::new(LANE_W, 2.0)), ..default() }, Transform::from_xyz(LANE_X, y, -8.5), GridLine));
-    }
+        let left = lane_x - LANE_W / 2.0;
+        let bottom = LANE_Y - LANE_H / 2.0;
+        for c in 0..=COLS {
+            let x = left + c as f32 * CELL;
+            commands.spawn((Sprite { color: Color::srgba(0.35, 0.35, 0.38, 0.6), custom_size: Some(Vec2::new(2.0, LANE_H)), ..default() }, Transform::from_xyz(x, LANE_Y, -8.5), GridLine));
+        }
+        for r in 0..=ROWS {
+            let y = bottom + r as f32 * CELL;
+            commands.spawn((Sprite { color: Color::srgba(0.35, 0.35, 0.38, 0.6), custom_size: Some(Vec2::new(LANE_W, 2.0)), ..default() }, Transform::from_xyz(lane_x, y, -8.5), GridLine));
+        }
 
-    commands.spawn((Sprite { color: Color::srgb(0.4, 0.4, 0.45), custom_size: Some(Vec2::new(4.0, LANE_H)), ..default() }, Transform::from_xyz(LANE_X - LANE_W / 2.0, LANE_Y, -8.0)));
-    commands.spawn((Sprite { color: Color::srgb(0.4, 0.4, 0.45), custom_size: Some(Vec2::new(4.0, LANE_H)), ..default() }, Transform::from_xyz(LANE_X + LANE_W / 2.0, LANE_Y, -8.0)));
-    commands.spawn((Sprite { color: Color::srgb(0.4, 0.4, 0.45), custom_size: Some(Vec2::new(LANE_W, 4.0)), ..default() }, Transform::from_xyz(LANE_X, LANE_Y + LANE_H / 2.0, -8.0)));
-    commands.spawn((Sprite { color: Color::srgb(0.3, 0.3, 0.35), custom_size: Some(Vec2::new(LANE_W, 4.0)), ..default() }, Transform::from_xyz(LANE_X, LANE_Y - LANE_H / 2.0, -8.0)));
+        commands.spawn((Sprite { color: Color::srgb(0.4, 0.4, 0.45), custom_size: Some(Vec2::new(4.0, LANE_H)), ..default() }, Transform::from_xyz(lane_x - LANE_W / 2.0, LANE_Y, -8.0)));
+        commands.spawn((Sprite { color: Color::srgb(0.4, 0.4, 0.45), custom_size: Some(Vec2::new(4.0, LANE_H)), ..default() }, Transform::from_xyz(lane_x + LANE_W / 2.0, LANE_Y, -8.0)));
+        commands.spawn((Sprite { color: Color::srgb(0.4, 0.4, 0.45), custom_size: Some(Vec2::new(LANE_W, 4.0)), ..default() }, Transform::from_xyz(lane_x, LANE_Y + LANE_H / 2.0, -8.0)));
+        commands.spawn((Sprite { color: Color::srgb(0.3, 0.3, 0.35), custom_size: Some(Vec2::new(LANE_W, 4.0)), ..default() }, Transform::from_xyz(lane_x, LANE_Y - LANE_H / 2.0, -8.0)));
+
+        // nadpis nad lajnou, at je jasne, ci je
+        let title = if side == Side::Player { "TY" } else { "BOT" };
+        commands.spawn((Text2d::new(title), TextFont { font_size: 22.0, ..default() }, TextColor(Color::srgba(1.0, 1.0, 1.0, 0.5)), Transform::from_xyz(lane_x, LANE_Y + LANE_H / 2.0 + 24.0, -7.0)));
+    }
 
     // zelena cilova cara (2 radky nad spodkem) odstranena - cilem je spodni okraj lajny
 
@@ -195,7 +201,7 @@ fn setup(
     commands.spawn((Node { width: Val::Percent(100.0), height: Val::Px(36.0), position_type: PositionType::Absolute, top: Val::Px(SAFE_TOP), left: Val::Px(0.0), flex_direction: FlexDirection::Row, column_gap: Val::Px(16.0), padding: UiRect::all(Val::Px(8.0)), ..default() }, BackgroundColor(Color::srgba(0.1, 0.1, 0.12, 0.95)))).with_children(|p| {
         p.spawn((Text::new("Gold: 150"), TextFont { font_size: 14.0, ..default() }, TextColor(Color::WHITE), GoldText));
         p.spawn((Text::new("Diamonds: 0"), TextFont { font_size: 14.0, ..default() }, TextColor(Color::WHITE), DiamondText));
-        p.spawn((Text::new("Proslo: 0/15"), TextFont { font_size: 14.0, ..default() }, TextColor(Color::WHITE), EscapedText));
+        p.spawn((Text::new("Zivoty: 15 | Bot: 15"), TextFont { font_size: 14.0, ..default() }, TextColor(Color::WHITE), LivesText));
         p.spawn((Text::new("Vlna: 0"), TextFont { font_size: 14.0, ..default() }, TextColor(Color::WHITE), WaveText));
 
     });
@@ -222,13 +228,15 @@ fn setup(
         });
     });
 
-    // === vpravo nahore - prazdny ctverecek (rezerva, funkce doplnime) ===
+    // === vpravo nahore - prepnout pohled na lajnu soupere a zpet (nebo klavesa Tab) ===
     commands.spawn((
         Button,
-        Node { position_type: PositionType::Absolute, top: Val::Px(44.0 + SAFE_TOP), right: Val::Px(8.0), width: Val::Px(64.0), height: Val::Px(64.0), ..default() },
-        BackgroundColor(Color::srgb(0.2, 0.2, 0.22)),
-        ReservedButton,
-    ));
+        Node { position_type: PositionType::Absolute, top: Val::Px(44.0 + SAFE_TOP), right: Val::Px(8.0), width: Val::Px(64.0), height: Val::Px(64.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+        BackgroundColor(Color::srgb(0.55, 0.2, 0.2)),
+        SwitchViewButton,
+    )).with_children(|p| {
+        p.spawn((Text::new("SOUPER"), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE), SwitchViewLabel));
+    });
 
     // === LEFT TOP pod odpoctem vlny - za kolik s prijde income (v zavorce celkovy income) ===
     commands.spawn((Node {

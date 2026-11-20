@@ -18,13 +18,19 @@ pub const FALLBACK_INSET_BOTTOM: f32 = 46.0;
 // vychozi posun kamery, aby lajna sedela mezi horni listou hry (36 px) a spodni bezpecnou oblasti
 pub const CAM_BASE_Y: f32 = (SAFE_TOP + 36.0 - SAFE_BOTTOM) / 2.0;
 
+// 1v1: lajna bota lezi ve svete o tolik vpravo od hracovy. Je to dal nez nejvetsi dosah veze,
+// takze strely, aury a leceni jedne strany nikdy nezasahnou na druhou.
+pub const SIDE_OFFSET_X: f32 = 3000.0;
+pub const START_GOLD: i32 = 150;  // zatim puvodni hodnota, krok 3 ji zmeni na 30
+pub const START_LIVES: u32 = 15;  // oba zacinaji s 15, dohromady 30 (pretahovana)
+pub const TOTAL_LIVES: u32 = 30;
+
 pub const CREEP_BASE_SPEED: f32 = 85.0;
 pub const MAX_TOWER_LEVEL: u32 = 5;
 pub const MAX_WAVES: u32 = 30;       // celkem vln, potom uz zadne nechodi
 pub const SELL_SECONDS: f32 = 3.0;   // jak dlouho trva prodej veze (behem toho jeste strili)
 pub const SELL_REFUND: f32 = 0.75;   // kolik z celkove investice se vrati
 pub const LEAK_GOLD_RATIO: f32 = 0.2; // kdyz tvoje jednotka projde: tolik z ceny se vrati jako gold
-pub const LEAK_LIFE_GAIN: u32 = 1;    // ...a tolik zivotu pribude
 pub const TOWER_RANGE_SCALE: f32 = 0.5; // dosah vsech veze se nasobi timto cislem (1.0 = puvodni dosahy z tabulky)
 
 pub const TOWER_POISON: u8 = 5;

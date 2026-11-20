@@ -18,20 +18,20 @@ Tohle je nejvíc práce, ale připraví to půdu i pro online: online soupeř je
 ## Kroky
 
 ### Krok 0 – úklid (malý)
-- [ ] Odstranit dvojí registraci kamery a menu v `src/lib.rs`.
-- [ ] Smazat starý `main.rs` v kořeni projektu.
-- [ ] Ověřit, že hra jde přeložit a spustit na PC.
+- [x] Odstranit dvojí registraci kamery a menu v `src/lib.rs`.
+- [x] Smazat starý `main.rs` v kořeni projektu.
+- [x] Ověřit, že hra jde přeložit a spustit na PC.
 
 ### Krok 1 – dvě lajny a přepínání
-- [ ] `Side` + `SideState`, přesunout gold/income/grid/cestu/životy do `SideState`.
-- [ ] Druhá lajna (bot) vedle první, zatím prázdná, vlny chodí na obě.
-- [ ] Tlačítko / swipe pro přepnutí kamery na lajnu soupeře a zpět.
-- [ ] Na soupeřově lajně nejde stavět (jen se dívat).
+- [x] `Side` + `SideState`, přesunout gold/income/grid/cestu/životy do `SideState`.
+- [x] Druhá lajna (bot) vedle první, zatím prázdná, vlny chodí na obě.
+- [x] Tlačítko / swipe pro přepnutí kamery na lajnu soupeře a zpět. (tlačítko SOUPEŘ vpravo nahoře, na PC i klávesa Tab; swipe zatím ne)
+- [x] Na soupeřově lajně nejde stavět (jen se dívat).
 
 ### Krok 2 – kola, životy, výhra
 - [ ] Kolo = vlna normálních creepů + 1 větší, každé 5. kolo boss, pauza 7 s mezi koly.
 - [ ] Vlny rostou, v pozdních kolech rychleji (pojistka ~15 min).
-- [ ] Průnik: normální 1 / větší 2 / boss 3–5 životů; **já ztratím, soupeř získá** (start 15/15, celkem 30).
+- [ ] Průnik: normální 1 / větší 2 / boss 3–5 životů. (Přetahovaná 15/15 už funguje, zatím vše za 1.)
 - [ ] Obrazovka výhry / prohry, návrat do menu.
 
 ### Krok 3 – ekonomika a posílání soupeři
@@ -55,6 +55,10 @@ Tohle je nejvíc práce, ale připraví to půdu i pro online: online soupeř je
 ### Krok 6 – testování a ladění na telefonu
 - [ ] Délka zápasu 4–5 min, rank 7 je reálný? Strop ceny stavby?
 - [ ] Ceny jednotek, income, gold za zabití, růst vln.
+
+## Test na PC
+
+`AUTOPLAY=1 cargo run` přeskočí menu a rovnou spustí zápas.
 
 ## Další etapa (po botovi)
 Karty a truhly, výběr balíčku, úrovně karet, uložení progresu v telefonu → online 1v1, účty, žebříček → kosmetika, diamanty, obchod.

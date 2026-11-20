@@ -6,16 +6,49 @@ pub struct CreepTimer(pub Timer);
 #[derive(Resource)]
 pub struct WavePaused(pub bool);
 #[derive(Resource)]
-pub struct EscapedCount(pub u32);
-#[derive(Resource)]
-pub struct Gold(pub i32);
-#[derive(Resource)]
 pub struct Diamonds(pub i32);
 #[derive(Resource)]
 pub struct WaveCount(pub u32);
 // income: kazdych 7s pripise `amount` gold (zvysuje se odesilanim jednotek)
-#[derive(Resource)]
 pub struct Income { pub amount: f32, pub carry: f32, pub sent: [u32; 32], pub timer: Timer } // amount = gold za tik, carry = zbytek za desetinnou carkou, sent = kolik jednotek uz odeslano
+
+// stav jedne strany (hrac / bot): vlastni gold, income, zivoty a bludiste
+pub struct SideState {
+    pub gold: i32,
+    pub income: Income,
+    pub lives: u32,
+    pub grid: Grid,
+    pub path: PathMap,
+}
+
+impl SideState {
+    pub fn new() -> Self {
+        Self {
+            gold: crate::constants::START_GOLD,
+            income: Income { amount: crate::constants::BASE_INCOME, carry: 0.0, sent: [0; 32], timer: Timer::from_seconds(7.0, TimerMode::Repeating) },
+            lives: crate::constants::START_LIVES,
+            grid: Grid { blocked: [[false; COLS]; ROWS] },
+            path: PathMap { dist: [[None; COLS]; ROWS] },
+        }
+    }
+}
+
+// obe strany zapasu; index = Side::idx() (0 = hrac, 1 = bot)
+#[derive(Resource)]
+pub struct Sides(pub [SideState; 2]);
+
+impl Default for Sides {
+    fn default() -> Self { Self([SideState::new(), SideState::new()]) }
+}
+
+impl Sides {
+    pub fn get(&self, side: crate::components::Side) -> &SideState { &self.0[side.idx()] }
+    pub fn get_mut(&mut self, side: crate::components::Side) -> &mut SideState { &mut self.0[side.idx()] }
+}
+
+// na kterou lajnu se prave diva kamera
+#[derive(Resource)]
+pub struct ViewSide(pub crate::components::Side);
 #[derive(Resource)]
 pub struct HoverCell(pub Option<(usize, usize)>);
 #[derive(Resource)]
@@ -33,10 +66,10 @@ pub struct HeldBuilding(pub Option<u8>);
 #[derive(Resource, Default)]
 pub struct PanelsOpen { pub build: bool, pub send: bool, pub build_target: Option<(usize, usize)> } // build_target = policko, na ktere se stavi z nabidky B (None = budova se drzi na kurzoru)
 
-#[derive(Resource, Clone)]
+#[derive(Clone)]
 pub struct Grid { pub blocked: [[bool; COLS]; ROWS] }
 
-#[derive(Resource, Clone)]
+#[derive(Clone)]
 pub struct PathMap { pub dist: [[Option<i32>; COLS]; ROWS] }
 
 

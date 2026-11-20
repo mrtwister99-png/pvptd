@@ -1,7 +1,7 @@
 
 use bevy::prelude::*;
-use crate::components::{Tower, Selling, UpgradeLabel, SellLabel, RangeRing, RangeRingNext, HoverHighlight, TowerLevelText, PauseButtonUI, BuildPreview, BuildToggleButton, BuildPanel, BuildPanelItem, SendToggleButton, SendPanel, TowerActionPanel, UpgradeButton, SellButton, SelectionMarker, SafeRoot};
-use crate::resources::{HoverCell, SelectedCell, Gold, Grid, PathMap, WavePaused, HeldBuilding, PanelsOpen, InputPointer, SafeInsets};
+use crate::components::{Side, SwitchViewButton, SwitchViewLabel, Tower, Selling, UpgradeLabel, SellLabel, RangeRing, RangeRingNext, HoverHighlight, TowerLevelText, PauseButtonUI, BuildPreview, BuildToggleButton, BuildPanel, BuildPanelItem, SendToggleButton, SendPanel, TowerActionPanel, UpgradeButton, SellButton, SelectionMarker, SafeRoot};
+use crate::resources::{HoverCell, SelectedCell, Sides, ViewSide, WavePaused, HeldBuilding, PanelsOpen, InputPointer, SafeInsets};
 use crate::constants::{CELL, LANE_H, LANE_W, CAM_BASE_Y, tower_icon_path, MAX_TOWER_LEVEL, SELL_SECONDS, SELL_REFUND};
 use crate::tower_def::{get_tower_def, get_total_spent_gold};
 use crate::utils::{grid_to_world, compute_path};
@@ -11,24 +11,24 @@ fn try_build_tower(
     row: usize,
     col: usize,
     commands: &mut Commands,
-    gold: &mut ResMut<Gold>,
-    grid: &mut ResMut<Grid>,
-    path: &mut ResMut<PathMap>,
+    sides: &mut Sides,
     asset_server: &Res<AssetServer>,
 ) -> bool {
+    let side = Side::Player; // zatim stavi jen hrac (bot pozdeji vlastni cestou)
+    let st = sides.get_mut(side);
     if row >= crate::constants::ROWS || col >= crate::constants::COLS { return false; }
-    if grid.blocked[row][col] { println!("Blokovano [{},{}]", col, row); return false; }
+    if st.grid.blocked[row][col] { println!("Blokovano [{},{}]", col, row); return false; }
     let def = get_tower_def(kind, 1);
-    if gold.0 < def.gold { println!("Malo gold: potreba {} mas {}", def.gold, gold.0); return false; }
-    let mut test_blocked = grid.blocked.clone();
+    if st.gold < def.gold { println!("Malo gold: potreba {} mas {}", def.gold, st.gold); return false; }
+    let mut test_blocked = st.grid.blocked.clone();
     test_blocked[row][col] = true;
     let test_dist = compute_path(&test_blocked);
     // stavba muze zablokovat cestu - creepy pak stoji pred zdi, dokud hlidac (guardian_system) nezboura vez v ceste
 
-    gold.0 -= def.gold;
-    grid.blocked[row][col] = true;
-    path.dist = test_dist;
-    let pos = grid_to_world(row, col);
+    st.gold -= def.gold;
+    st.grid.blocked[row][col] = true;
+    st.path.dist = test_dist;
+    let pos = grid_to_world(side, row, col);
     let fire_rate = 1.0 / def.interval.max(0.1);
     let avg = (def.dmg_min + def.dmg_max)*0.5;
     let sprite = match tower_icon_path(kind) {
@@ -39,7 +39,7 @@ fn try_build_tower(
     commands.spawn((
         sprite,
         Transform::from_xyz(pos.x, pos.y, 5.0),
-        Tower { damage: avg, damage_min: def.dmg_min, damage_max: def.dmg_max, range: def.range, fire_rate, cooldown:0.0, kind, col, row, level:1, splash:def.splash, slow_per_hit:def.slow_per, slow_max:def.slow_max, push_chance:def.push_chance, push_dist:def.push_dist, dot_dps:def.dot_dps, dot_duration:def.dot_dur, chain_targets:def.chain, hit_count:0 },
+        Tower { side, damage: avg, damage_min: def.dmg_min, damage_max: def.dmg_max, range: def.range, fire_rate, cooldown:0.0, kind, col, row, level:1, splash:def.splash, slow_per_hit:def.slow_per, slow_max:def.slow_max, push_chance:def.push_chance, push_dist:def.push_dist, dot_dps:def.dot_dps, dot_duration:def.dot_dur, chain_targets:def.chain, hit_count:0 },
     )).with_children(|p| { p.spawn((Text2d::new("Lv1"), TextFont { font_size: 10.0, ..default() }, TextColor(Color::WHITE), Transform::from_xyz(0.0, -18.0, 1.0), TowerLevelText)); });
 
     println!("Postavena vez {:?} na [{},{}]", kind, col, row);
@@ -61,7 +61,7 @@ pub fn sell_tower_input(
 ) {
     if !q_btn.iter().any(|i| *i == Interaction::Pressed) { return; } // jen klik na tlacitko PRODAT / ZRUSIT
     let Some((row, col)) = selected_cell.0 else { return; };
-    let Some((ent, tower, children, selling)) = q_towers.iter().find(|(_, t, _, _)| t.row == row && t.col == col) else { return; };
+    let Some((ent, tower, children, selling)) = q_towers.iter().find(|(_, t, _, _)| t.side == Side::Player && t.row == row && t.col == col) else { return; };
     if selling {
         // zrusit prodej: vratit napis levelu
         commands.entity(ent).remove::<Selling>();
@@ -77,9 +77,7 @@ pub fn sell_tower_input(
 pub fn selling_system(
     mut commands: Commands,
     time: Res<Time>,
-    mut gold: ResMut<Gold>,
-    mut grid: ResMut<Grid>,
-    mut path: ResMut<PathMap>,
+    mut sides: ResMut<Sides>,
     mut selected_cell: ResMut<SelectedCell>,
     mut q_selling: Query<(Entity, &Tower, &mut Selling, &Children)>,
     mut q_level_text: Query<&mut Text2d, With<TowerLevelText>>,
@@ -88,11 +86,12 @@ pub fn selling_system(
         selling.timer.tick(time.delta());
         if selling.timer.finished() {
             let price = sell_price(tower.kind, tower.level);
-            grid.blocked[tower.row][tower.col] = false;
-            path.dist = compute_path(&grid.blocked);
+            let st = sides.get_mut(tower.side);
+            st.grid.blocked[tower.row][tower.col] = false;
+            st.path.dist = compute_path(&st.grid.blocked);
             commands.entity(ent).despawn_recursive();
-            gold.0 += price;
-            if selected_cell.0 == Some((tower.row, tower.col)) { selected_cell.0 = None; }
+            st.gold += price;
+            if tower.side == Side::Player && selected_cell.0 == Some((tower.row, tower.col)) { selected_cell.0 = None; }
             println!("Prodana vez {:?} Lv{} za {}G", tower.kind, tower.level, price);
             continue;
         }
@@ -104,7 +103,7 @@ pub fn selling_system(
 }
 
 pub fn upgrade_tower_input(
-    mut gold: ResMut<Gold>,
+    mut sides: ResMut<Sides>,
     selected_cell: Res<SelectedCell>,
     mut q_towers: Query<(&mut Tower, &Children), Without<Selling>>,
     mut q_level_text: Query<&mut Text2d, With<TowerLevelText>>,
@@ -112,12 +111,13 @@ pub fn upgrade_tower_input(
 ) {
     if !q_btn.iter().any(|i| *i == Interaction::Pressed) { return; } // jen klik na zelene UPGRADE
     let Some((row, col)) = selected_cell.0 else { return; };
+    let gold = &mut sides.get_mut(Side::Player).gold;
     for (mut tower, children) in q_towers.iter_mut() {
-        if tower.row == row && tower.col == col {
+        if tower.side == Side::Player && tower.row == row && tower.col == col {
             if tower.level >= MAX_TOWER_LEVEL { println!("MAX LEVEL 5/5!"); return; }
             let next_def = get_tower_def(tower.kind, tower.level+1);
-            if gold.0 < next_def.gold { println!("Potrebujes {}G, mas {}G", next_def.gold, gold.0); return; }
-            gold.0 -= next_def.gold;
+            if *gold < next_def.gold { println!("Potrebujes {}G, mas {}G", next_def.gold, *gold); return; }
+            *gold -= next_def.gold;
             tower.level += 1;
             tower.damage_min = next_def.dmg_min;
             tower.damage_max = next_def.dmg_max;
@@ -177,9 +177,10 @@ pub fn mouse_hover_system(
     let Some(cursor_pos) = pointer.pos else { hover.0 = None; for (_, mut vis) in q_highlight.iter_mut() { *vis = Visibility::Hidden; } return; };
     let Ok((camera, cam_tf)) = camera_q.get_single() else { return; };
     let Ok(world_pos) = camera.viewport_to_world_2d(cam_tf, cursor_pos) else { return; };
-    if let Some((r,c)) = crate::utils::world_to_grid(world_pos.x, world_pos.y) {
+    // stavet a vybirat se da jen na vlastni lajne (na lajne soupere je hover None)
+    if let Some((r,c)) = crate::utils::world_to_grid(Side::Player, world_pos.x, world_pos.y) {
         hover.0 = Some((r,c));
-        let wp = crate::utils::grid_to_world(r,c);
+        let wp = crate::utils::grid_to_world(Side::Player, r,c);
         for (mut tf, mut vis) in q_highlight.iter_mut() { tf.translation.x = wp.x; tf.translation.y = wp.y; *vis = Visibility::Visible; }
     } else {
         hover.0 = None;
@@ -193,9 +194,7 @@ pub fn mouse_click_select_system(
     hover: Res<HoverCell>,
     mut selected: ResMut<SelectedCell>,
     mut commands: Commands,
-    mut gold: ResMut<Gold>,
-    mut grid: ResMut<Grid>,
-    mut path: ResMut<PathMap>,
+    mut sides: ResMut<Sides>,
     asset_server: Res<AssetServer>,
     mut held: ResMut<HeldBuilding>,
     mut panels: ResMut<PanelsOpen>,
@@ -211,7 +210,7 @@ pub fn mouse_click_select_system(
     match (hover.0, held.0) {
         // drzim budovu -> klik na bunku = postavit (pri uspechu pustim)
         (Some(cell), Some(kind)) => {
-            if try_build_tower(kind, cell.0, cell.1, &mut commands, &mut gold, &mut grid, &mut path, &asset_server) {
+            if try_build_tower(kind, cell.0, cell.1, &mut commands, &mut sides, &asset_server) {
                 held.0 = None;
                 selected.0 = None;
             }
@@ -219,7 +218,7 @@ pub fn mouse_click_select_system(
         (Some(cell), None) => {
             selected.0 = Some(cell);
             // prazdne policko = otevrit nabidku B (stavi se primo na toto policko); vez = jen vyber
-            if !q_towers.iter().any(|t| t.row == cell.0 && t.col == cell.1) {
+            if !q_towers.iter().any(|t| t.side == Side::Player && t.row == cell.0 && t.col == cell.1) {
                 panels.build = true;
                 panels.build_target = Some(cell);
             }
@@ -257,9 +256,7 @@ pub fn panels_input_system(
     q_s: Query<&Interaction, (Changed<Interaction>, With<SendToggleButton>)>,
     q_items: Query<(&Interaction, &BuildPanelItem), Changed<Interaction>>,
     mut commands: Commands,
-    mut gold: ResMut<Gold>,
-    mut grid: ResMut<Grid>,
-    mut path: ResMut<PathMap>,
+    mut sides: ResMut<Sides>,
     asset_server: Res<AssetServer>,
     mut selected: ResMut<SelectedCell>,
     mut panels: ResMut<PanelsOpen>,
@@ -284,11 +281,11 @@ pub fn panels_input_system(
     }
     for (interaction, item) in q_items.iter() {
         if *interaction != Interaction::Pressed { continue; }
-        if gold.0 < get_tower_def(item.0, 1).gold { continue; }
+        if sides.get(Side::Player).gold < get_tower_def(item.0, 1).gold { continue; }
         match panels.build_target {
             // nabidka otevrena klepnutim na policko: postavit rovnou tam
             Some((r, c)) => {
-                if try_build_tower(item.0, r, c, &mut commands, &mut gold, &mut grid, &mut path, &asset_server) {
+                if try_build_tower(item.0, r, c, &mut commands, &mut sides, &asset_server) {
                     panels.build = false;
                     panels.build_target = None;
                     selected.0 = None;
@@ -307,7 +304,7 @@ pub fn panels_input_system(
 pub fn panels_display_system(
     panels: Res<PanelsOpen>,
     held: Res<HeldBuilding>,
-    gold: Res<Gold>,
+    sides: Res<Sides>,
     selected_cell: Res<SelectedCell>,
     q_towers: Query<(&Tower, Has<Selling>)>,
     mut q_build: Query<&mut Node, (With<BuildPanel>, Without<SendPanel>, Without<TowerActionPanel>)>,
@@ -320,7 +317,8 @@ pub fn panels_display_system(
     mut q_sell_btn: Query<&mut BackgroundColor, (With<SellButton>, Without<UpgradeButton>, Without<BuildPanelItem>)>,
 ) {
     // vybrana postavena vez (kind, level, prave se prodava)
-    let selected = selected_cell.0.and_then(|(r, c)| q_towers.iter().find(|(t, _)| t.row == r && t.col == c).map(|(t, s)| (t.kind, t.level, s)));
+    let gold = sides.get(Side::Player).gold;
+    let selected = selected_cell.0.and_then(|(r, c)| q_towers.iter().find(|(t, _)| t.side == Side::Player && t.row == r && t.col == c).map(|(t, s)| (t.kind, t.level, s)));
     let show = |open: bool| if open { Display::Flex } else { Display::None };
     for mut n in q_build.iter_mut() { n.display = show(panels.build); }
     for mut n in q_send.iter_mut() { n.display = show(panels.send); }
@@ -328,12 +326,12 @@ pub fn panels_display_system(
     for (item, mut bg) in q_items.iter_mut() {
         let def = get_tower_def(item.0, 1);
         let c = def.color.to_srgba();
-        bg.0 = if gold.0 >= def.gold { def.color } else { Color::srgb(c.red * 0.25, c.green * 0.25, c.blue * 0.25) };
+        bg.0 = if gold >= def.gold { def.color } else { Color::srgb(c.red * 0.25, c.green * 0.25, c.blue * 0.25) };
     }
     if let Some((kind, level, selling)) = selected {
         // UPGRADE: cena dalsiho levelu; ztmaveny, kdyz nejsou penize / max level / probiha prodej
         let next_cost = if level >= MAX_TOWER_LEVEL { None } else { Some(get_tower_def(kind, level + 1).gold) };
-        let can_upgrade = !selling && next_cost.map_or(false, |c| gold.0 >= c);
+        let can_upgrade = !selling && next_cost.map_or(false, |c| gold >= c);
         let up = if selling { "UPGRADE\n-".to_string() } else { match next_cost { Some(c) => format!("UPGRADE\n{}G", c), None => "UPGRADE\nMAX".to_string() } };
         // PRODAT -> pri prodeji se zmeni na ZRUSIT
         let sell = if selling { "ZRUSIT\nPRODEJ".to_string() } else { format!("PRODAT\n+{}G\n({:.0}s)", sell_price(kind, level), SELL_SECONDS) };
@@ -359,9 +357,9 @@ pub fn range_rings_system(
     let mut ring: Option<(Vec2, f32)> = None; // (stred, polomer)
     let mut next: Option<f32> = None;          // polomer po upgradu
     if let Some(kind) = held.0 {
-        if let Some((r, c)) = hover.0 { ring = Some((grid_to_world(r, c), get_tower_def(kind, 1).range)); }
+        if let Some((r, c)) = hover.0 { ring = Some((grid_to_world(Side::Player, r, c), get_tower_def(kind, 1).range)); }
     } else if let Some((r, c)) = selected_cell.0 {
-        if let Some((tower, tf)) = q_towers.iter().find(|(t, _)| t.row == r && t.col == c) {
+        if let Some((tower, tf)) = q_towers.iter().find(|(t, _)| t.side == Side::Player && t.row == r && t.col == c) {
             ring = Some((tf.translation.truncate(), tower.range));
             let hovering_up = q_up_btn.iter().any(|i| *i != Interaction::None);
             if hovering_up && tower.level < MAX_TOWER_LEVEL { next = Some(get_tower_def(tower.kind, tower.level + 1).range); }
@@ -391,7 +389,7 @@ pub fn held_ghost_system(
     for (mut tf, mut vis, mut sprite) in q_ghost.iter_mut() {
         match (held.0, hover.0) {
             (Some(kind), Some((r, c))) => {
-                let wp = grid_to_world(r, c);
+                let wp = grid_to_world(Side::Player, r, c);
                 tf.translation.x = wp.x;
                 tf.translation.y = wp.y;
                 match tower_icon_path(kind) {
@@ -457,6 +455,7 @@ pub fn camera_gesture_system(
     mut drag: Local<f32>,              // kolik se prst pohnul od dotyku
     insets: Res<SafeInsets>,           // okraje systemovych list
     mut last_extra: Local<f32>,        // posledni posun kamery podle okraju
+    view: Res<ViewSide>,               // na kterou lajnu se divame
 ) {
     let Ok(mut tf) = cam.get_single_mut() else { return; };
     // lajna se vycentruje do bezpecne oblasti: kdyz se zmeni okraje, kamera se posune o rozdil
@@ -501,7 +500,8 @@ pub fn camera_gesture_system(
     let limit_y = (LANE_H / 2.0 + CAM_PAN_SLACK - half_h * scale).max(CAM_PAN_SLACK); // jak daleko od stredu smi kamera
     let limit_x = (LANE_W / 2.0 + CAM_PAN_SLACK - half_w * scale).max(0.0);            // na siroke obrazovce se bocne nehybe
     let shift_zoom = anchor * (tf.scale.x - scale); // bod pod kurzorem zustane pri zoomu na miste
-    let x = (tf.translation.x + dx + shift_zoom.x).clamp(-limit_x, limit_x);
+    let cx = view.0.lane_x(); // stred prave sledovane lajny
+    let x = (tf.translation.x + dx + shift_zoom.x).clamp(cx - limit_x, cx + limit_x);
     let y = (tf.translation.y + dy + shift_zoom.y).clamp(CAM_BASE_Y + extra - limit_y, CAM_BASE_Y + extra + limit_y); // okolo zakladniho posunu kamery
     if tf.scale.x != scale { tf.scale = Vec3::new(scale, scale, 1.0); }
     if tf.translation.x != x { tf.translation.x = x; }
@@ -514,7 +514,7 @@ pub fn selection_marker_system(selected: Res<SelectedCell>, mut q: Query<(&mut T
     for (mut tf, mut vis) in q.iter_mut() {
         match selected.0 {
             Some((r, c)) => {
-                let p = grid_to_world(r, c);
+                let p = grid_to_world(Side::Player, r, c);
                 tf.translation.x = p.x;
                 tf.translation.y = p.y;
                 if *vis != Visibility::Visible { *vis = Visibility::Visible; }
@@ -569,4 +569,33 @@ pub fn safe_area_system(
         n.bottom = Val::Px(new.bottom);
     }
     println!("Bezpecne okraje (logicke px): nahore {:.0}, dole {:.0}, vlevo {:.0}, vpravo {:.0}", new.top, new.bottom, new.left, new.right);
+}
+// prepnuti kamery mezi moji lajnou a lajnou soupere (tlacitko vpravo nahore nebo Tab)
+pub fn switch_view_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    q_btn: Query<&Interaction, (Changed<Interaction>, With<SwitchViewButton>)>,
+    mut view: ResMut<ViewSide>,
+    mut cam: Query<&mut Transform, With<Camera2d>>,
+    mut q_label: Query<&mut Text, With<SwitchViewLabel>>,
+    mut q_btn_bg: Query<&mut BackgroundColor, With<SwitchViewButton>>,
+    mut held: ResMut<HeldBuilding>,
+    mut panels: ResMut<PanelsOpen>,
+    mut selected: ResMut<SelectedCell>,
+) {
+    let clicked = q_btn.iter().any(|i| *i == Interaction::Pressed);
+    if !clicked && !keys.just_pressed(KeyCode::Tab) { return; }
+    let from = view.0;
+    view.0 = from.other();
+    // kamera skoci na stejne misto druhe lajny (zoom i vyska zustavaji)
+    if let Ok(mut tf) = cam.get_single_mut() { tf.translation.x += view.0.lane_x() - from.lane_x(); }
+    // na lajne soupere se nestavi: zrusit drzenou budovu, vyber a stavebni nabidku
+    if view.0 != Side::Player {
+        held.0 = None;
+        selected.0 = None;
+        panels.build = false;
+        panels.build_target = None;
+    }
+    let (label, col) = if view.0 == Side::Player { ("SOUPER", Color::srgb(0.55, 0.2, 0.2)) } else { ("MOJE\nLAJNA", Color::srgb(0.2, 0.45, 0.25)) };
+    for mut t in q_label.iter_mut() { t.0 = label.to_string(); }
+    for mut bg in q_btn_bg.iter_mut() { bg.0 = col; }
 }
