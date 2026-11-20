@@ -18,7 +18,6 @@ impl Side {
 #[derive(Component)]
 pub struct Tower {
     pub side: Side,
-    pub damage: f32,
     pub damage_min: f32,
     pub damage_max: f32,
     pub range: f32,
@@ -37,6 +36,7 @@ pub struct Tower {
     pub dot_duration: f32,
     pub chain_targets: u32,
     pub hit_count: u32,
+    pub invested: i32, // kolik goldu stalo vsechno, co se do veze spojilo (pro prodej)
 }
 
 // === CREEP - vzdy kolecko, jina barva, rust per wave + HP bar ===
@@ -101,10 +101,7 @@ pub struct Bullet {
 #[derive(Component)] pub struct HpBarFill;
 #[derive(Component)] pub struct HpBarText;
 
-// B / S panely a upgrade / prodat
-#[derive(Component)] pub struct BuildToggleButton;
-#[derive(Component)] pub struct BuildPanel;
-#[derive(Component)] pub struct BuildPanelItem(pub u8);
+// S panel a tlacitka POSTAVIT (UpgradeButton) / PRODAT
 #[derive(Component)] pub struct SendToggleButton;
 #[derive(Component)] pub struct SendPanel;
 #[derive(Component)] pub struct TowerActionPanel;

@@ -38,7 +38,7 @@ Rychlá a pestrá mobilní **1v1 PvP tower defense**. Kořeny má v Line Tower W
 - **Posílání**: hráč posílá jednotky soupeři **během vlny**. Po vlně je krátká pauza, pak začne další kolo a posílá se znovu.
 - **Automatické vlny chodí vždy** a k nim navíc to, co pošle soupeř.
 - **Životy jako přetahovaná**: dohromady je **30 životů**, oba hráči začínají s **15**. Když mi projde creep, já ztratím 1 a soupeř získá 1. Prohrává ten, kdo má 0, takže vítěz má všech 30.
-- **Cena průniku**: normální creep **1** život, větší creep **2**, boss **3–5** (doladit).
+- **Cena průniku**: normální creep **1** život, větší creep **2**, boss **4** (konstanta, jde změnit).
 - **Matchmaking hlavně podle síly balíčku** (úrovně karet), aby proti sobě hráli podobně silní.
 - **Pojistka**: v pozdějších kolech vlny sílí čím dál rychleji, takže zápas skončí nejpozději kolem ~15 min.
 - **Časování**: posílat se dá **celou dobu kola**, mezi koly je pauza **7 s**.
@@ -51,8 +51,11 @@ Rychlá a pestrá mobilní **1v1 PvP tower defense**. Kořeny má v Line Tower W
 - **Úroveň karty zvedá všechny statistiky** dané věže nebo jednotky. U jednotek to znamená silnější posílané creepy.
 - **Stavění v zápase**: tlačítko „postav“ vytvoří **náhodnou** věž z 5 vybraných, rank 1.
   Cena: první **10 g**, každá další o **+10 g** víc (10, 20, 30…).
+  **Strop 100 g** (přidáno po testu: bez něj se rank 7 nedá postavit).
 - **Spojování (merge)**: dvě **stejné** věže stejného ranku se spojí → vznikne **náhodná věž z balíčku o rank vyšší**.
 - **Max rank 7** (rank 1 + až 6 spojení; na rank 7 je potřeba 64 staveb).
+- **Výběr balíčku** je v menu pod HRAT (tlačítko BALICEK), vybírá se přesně 5 věží.
+- **Prodej věže** zůstává: vrací 50 % všeho, co se do věže spojilo.
 - **Bludiště zůstává**: hráč si cestu staví sám, jak to v rychlosti zvládne. Spojení věže z bludiště odebere, takže se cesta změní (je to i taktika).
 - **Spojení přetažením**: věž přetáhneš na stejnou věž a nová věž vznikne **na místě, kam jsi táhl**.
 - **Jednotky**: posílat se dá **neomezeně, dokud máš gold**. V zápase jsou **odemčené všechny jednotky**. Sílu jim zvedají **jen karty** (z truhel), během zápasu se jednotky nevylepšují.

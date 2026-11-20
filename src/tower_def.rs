@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 #[derive(Clone)]
+#[allow(dead_code)] // name a gold zustavaji v tabulce pro prehled (gold uz se nepouziva, stavba stoji 10/20/30...)
 pub struct TowerDef {
     pub name: &'static str,
     pub gold: i32,
@@ -20,8 +21,18 @@ pub struct TowerDef {
 }
 
 // dosah vsech veze se nasobi TOWER_RANGE_SCALE (jedno misto k ladeni v constants.rs)
+// level = rank veze v zapase (1..MAX_TOWER_LEVEL). Ranky 1-5 jsou z tabulky,
+// 6 a 7 vychazeji z ranku 5 a poskozeni roste dal (RANK_EXTRA_DMG_MUL za kazdy rank navic).
 pub fn get_tower_def(kind: u8, level: u32) -> TowerDef {
-    let mut def = base_tower_def(kind, level);
+    let level = level.clamp(1, crate::constants::MAX_TOWER_LEVEL);
+    let mut def = base_tower_def(kind, level.min(5));
+    if level > 5 {
+        let m = crate::constants::RANK_EXTRA_DMG_MUL.powi((level - 5) as i32);
+        def.dmg_min *= m;
+        def.dmg_max *= m;
+        def.dot_dps *= m;
+        def.range *= 1.0 + 0.05 * (level - 5) as f32;
+    }
     def.range *= crate::constants::TOWER_RANGE_SCALE;
     def
 }
@@ -104,10 +115,4 @@ fn base_tower_def(kind: u8, level: u32) -> TowerDef {
     }
 }
 
-pub fn get_total_spent_gold(kind: u8, level: u32) -> i32 {
-    let mut total = 0;
-    for l in 1..=level {
-        total += get_tower_def(kind, l).gold;
-    }
-    total
-}
+

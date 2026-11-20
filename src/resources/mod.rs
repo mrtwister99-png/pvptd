@@ -38,6 +38,8 @@ pub struct SideState {
     pub lives: u32,
     pub grid: Grid,
     pub path: PathMap,
+    pub builds: u32,   // kolik vezi uz postavil (cena dalsi stavby roste)
+    pub deck: Vec<u8>, // balicek vezi (druhy), ze kterych stavba nahodne vybira
 }
 
 impl SideState {
@@ -48,6 +50,8 @@ impl SideState {
             lives: crate::constants::START_LIVES,
             grid: Grid { blocked: [[false; COLS]; ROWS] },
             path: PathMap { dist: [[None; COLS]; ROWS] },
+            builds: 0,
+            deck: vec![1, 2, 3, 4, 6],
         }
     }
 }
@@ -64,6 +68,17 @@ impl Sides {
     pub fn get(&self, side: crate::components::Side) -> &SideState { &self.0[side.idx()] }
     pub fn get_mut(&mut self, side: crate::components::Side) -> &mut SideState { &mut self.0[side.idx()] }
 }
+
+// balicek hrace vybrany v menu (BALICEK); pri startu zapasu se zkopiruje do SideState
+#[derive(Resource)]
+pub struct Deck(pub Vec<u8>);
+impl Default for Deck {
+    fn default() -> Self { Self(vec![1, 2, 3, 4, 6]) }
+}
+
+// pretahovani veze prstem / mysi (spojovani): odkud se tahne a jestli se uz pohnul
+#[derive(Resource, Default)]
+pub struct TowerDrag { pub from: Option<(usize, usize)>, pub start: Vec2, pub moved: bool }
 
 // na kterou lajnu se prave diva kamera
 #[derive(Resource)]

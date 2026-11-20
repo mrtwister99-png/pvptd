@@ -7,6 +7,7 @@ mod wave_def;
 mod utils;
 mod systems;
 mod menu;
+mod deck;
 use constants::{COLS, ROWS, CELL, LANE_W, LANE_H, LANE_Y, FINISH_EXTRA_ROWS, SAFE_TOP, SAFE_BOTTOM, CAM_BASE_Y};
 use resources::*;
 use components::*;
@@ -20,6 +21,8 @@ pub fn main() {
             primary_window: Some(Window {
                 title: "Line TD - mobil+PC klik only + bullet + hp bar".into(),
                 resolution: Vec2::new(1280.0_f32, 800.0_f32).into(),
+                // test na PC: HIDDEN_WINDOW=1 = okno se otevre mimo obrazovku (skryte okno by se neprekreslovalo a hra by stala)
+                position: if std::env::var("HIDDEN_WINDOW").is_ok() { WindowPosition::At(IVec2::new(-5000, -5000)) } else { WindowPosition::Automatic },
                 ..default()
             }),
             ..default()
@@ -42,6 +45,11 @@ pub fn main() {
         .insert_resource(SelectedCell(None))
         .insert_resource(HeldBuilding(None))
         .insert_resource(PanelsOpen::default())
+        .insert_resource(Deck::default())
+        .insert_resource(TowerDrag::default())
+        .add_systems(OnEnter(AppState::DeckSelect), deck::spawn_deck_screen)
+        .add_systems(OnExit(AppState::DeckSelect), deck::despawn_deck_screen)
+        .add_systems(Update, (deck::deck_input_system, deck::deck_display_system).run_if(in_state(AppState::DeckSelect)))
         .insert_resource(DamageNumberPool::default())
         .insert_resource(BulletPool::default())
         .insert_resource(CreepGrid::default())
@@ -59,12 +67,11 @@ pub fn main() {
             mouse_click_select_system,
             range_rings_system,
             sell_tower_input,
-            upgrade_tower_input,
+            build_button_input,
             keyboard_pause_system,
             pause_button_system_top_left,
             panels_input_system,
             panels_display_system,
-            held_ghost_system,
             send_unit_system,
             income_system,
             selling_system,
@@ -111,6 +118,8 @@ pub fn main() {
             switch_view_system,
             game_over_system,
             game_over_button_system,
+            tower_drag_system,
+            bot_system,
         ).run_if(in_state(AppState::Playing)))
         .run();
 }
@@ -134,6 +143,7 @@ fn cleanup_game(
     commands.insert_resource(HoverCell(None));
     commands.insert_resource(HeldBuilding(None));
     commands.insert_resource(PanelsOpen::default());
+    commands.insert_resource(TowerDrag::default());
     // pooly: jejich entity byly smazany, setup je vytvori znovu
     commands.insert_resource(DamageNumberPool::default());
     commands.insert_resource(BulletPool::default());
@@ -151,12 +161,23 @@ fn autoplay_system(mut next: ResMut<NextState<AppState>>) {
 fn setup(
     mut commands: Commands,
     mut sides: ResMut<Sides>,
+    deck: Res<Deck>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     // kamera se spousti uz v menu (menu::spawn_camera)
     for st in sides.0.iter_mut() { st.path.dist = compute_path(&st.grid.blocked); }
+    // balicky: hrac ma svuj z menu, bot si nahodne vybere 5 ze vsech vezi
+    sides.get_mut(Side::Player).deck = deck.0.clone();
+    {
+        use rand::seq::SliceRandom;
+        let mut all: Vec<u8> = constants::ALL_TOWERS.iter().map(|t| t.0).collect();
+        all.shuffle(&mut rand::thread_rng());
+        all.truncate(constants::DECK_SIZE);
+        println!("Balicek hrace {:?}, bota {:?}", deck.0, all);
+        sides.get_mut(Side::Bot).deck = all;
+    }
 
     // dve lajny: hracova a bota (posunuta o SIDE_OFFSET_X); bot ma lehce cervenejsi pozadi
     for side in Side::ALL {
@@ -221,7 +242,7 @@ fn setup(
             p.spawn((Sprite { color: c, custom_size: Some(Vec2::new(w, h)), ..default() }, Transform::from_xyz(x, y, 0.1)));
         }
     });
-    // duch drzene budovy na kurzoru (ikonu a pozici nastavuje held_ghost_system)
+    // duch pretahovane veze pod prstem (ikonu a pozici nastavuje tower_drag_system)
     commands.spawn((Sprite::default(), Transform::from_xyz(0.0, 0.0, 8.0), BuildPreview, Visibility::Hidden));
 
     // kruh dosahu veze (bily) a kruh dosahu po upgradu (zeleny, ukaze se pri najeti na UPGRADE)
@@ -291,39 +312,6 @@ fn setup(
         p.spawn((Text::new("CHEAT\n+50"), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE)));
     });
 
-    // === B (vlevo dole) - otevre panel budov ===
-    commands.spawn((
-        Button,
-        Node { position_type: PositionType::Absolute, left: Val::Px(16.0), bottom: Val::Px(24.0 + SAFE_BOTTOM), width: Val::Px(64.0), height: Val::Px(64.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
-        BackgroundColor(Color::srgb(0.25, 0.35, 0.55)),
-        BuildToggleButton,
-    )).with_children(|p| {
-        p.spawn((Text::new("B"), TextFont { font_size: 22.0, ..default() }, TextColor(Color::WHITE)));
-    });
-
-    // panel budov - vysouva se nahoru nad B, na zacatku skryty
-    commands.spawn((Node {
-        position_type: PositionType::Absolute,
-        left: Val::Px(16.0),
-        bottom: Val::Px(96.0 + SAFE_BOTTOM),
-        flex_direction: FlexDirection::Column,
-        row_gap: Val::Px(6.0),
-        display: Display::None,
-        ..default()
-    }, BuildPanel)).with_children(|p| {
-        for (kind, name) in [(1u8, "ARROW"), (2, "CANNON"), (6, "SNIPER"), (3, "FROST"), (4, "FIRE"), (5, "POISON"), (7, "SHOCK")] {
-            let def = tower_def::get_tower_def(kind, 1);
-            p.spawn((
-                Button,
-                Node { width: Val::Px(64.0), height: Val::Px(64.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, flex_direction: FlexDirection::Column, ..default() },
-                BackgroundColor(def.color),
-                BuildPanelItem(kind),
-            )).with_children(|pp| {
-                pp.spawn((Text::new(format!("{}\n{}G", name, def.gold)), TextFont { font_size: 9.0, ..default() }, TextColor(Color::WHITE)));
-            });
-        }
-    });
-
     // === S (vpravo dole) - otevre panel jednotek ===
     commands.spawn((
         Button,
@@ -378,7 +366,7 @@ fn setup(
         });
     });
 
-    // === dole uprostred - UPGRADE (zelena) / PRODAT (cervena), jen kdyz je vybrana postavena vez ===
+    // === dole uprostred - POSTAVIT (zelena, prazdne policko) / PRODAT (cervena, vez); jen kdyz je vybrane policko ===
     commands.spawn((Node {
         position_type: PositionType::Absolute,
         left: Val::Percent(50.0),
@@ -395,7 +383,7 @@ fn setup(
             BackgroundColor(Color::srgb(0.15, 0.6, 0.2)),
             UpgradeButton,
         )).with_children(|pp| {
-            pp.spawn((Text::new("UPGRADE"), TextFont { font_size: 10.0, ..default() }, TextColor(Color::WHITE), UpgradeLabel));
+            pp.spawn((Text::new("POSTAVIT"), TextFont { font_size: 10.0, ..default() }, TextColor(Color::WHITE), UpgradeLabel));
         });
         p.spawn((
             Button,

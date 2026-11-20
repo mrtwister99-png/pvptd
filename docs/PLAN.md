@@ -35,30 +35,31 @@ Tohle je nejvíc práce, ale připraví to půdu i pro online: online soupeř je
 - [x] Obrazovka výhry / prohry, návrat do menu (nový zápas začne od nuly).
 
 ### Krok 3 – ekonomika a posílání soupeři
-- [ ] Start 30 g, income 10, tick 7 s, gold za zabití.
+- [x] Start 30 g, income 10, tick 7 s, gold za zabití.
 - [x] Poslaná jednotka se objeví na **soupeřově** lajně a trvale zvedne income. Posílat jde jen během kola.
-- [ ] Posílat jde neomezeně, dokud je gold, všechny jednotky odemčené.
+- [x] Posílat jde neomezeně, dokud je gold, všechny jednotky odemčené.
 
 ### Krok 4 – náhodná stavba a spojování (merge)
-- [ ] Balíček 5 věží (zatím napevno v kódu, výběr přijde s kartami).
-- [ ] Tlačítko „postav“: náhodná věž z balíčku, rank 1, na vybrané políčko; cena 10, 20, 30… g.
-- [ ] Přetažení věže na stejnou věž stejného ranku → **náhodná věž z balíčku o rank výš** na cílovém místě; uvolněné políčko se vrátí do bludiště (přepočet cesty).
-- [ ] Max rank 7. Statistiky pro ranky 1–7 (dnes jsou úrovně 1–5 → tabulku rozšířit).
-- [ ] Odstranit staré vylepšování lvl 1–5 za gold (a rozhodnout, co s prodejem).
+- [x] Balíček 5 věží: v menu tlačítko BALICEK pod HRAT, výběr přesně 5 ze 7 věží (zatím se neukládá po zavření hry).
+- [x] Klepnutí na prázdné políčko → tlačítko POSTAVIT: náhodná věž z balíčku, rank 1; cena 10, 20, 30… g, strop 100 g.
+- [x] Přetažení věže na stejnou věž stejného ranku → **náhodná věž z balíčku o rank výš** na cílovém místě; uvolněné políčko se vrátí do bludiště (přepočet cesty).
+- [x] Max rank 7. Ranky 1–5 z tabulky, 6 a 7 = rank 5 × 2,2 / × 4,84 poškození.
+- [x] Staré vylepšování a nabídka B odstraněny. Prodej zůstává: vrací 50 % všeho, co se do věže spojilo.
 
 ### Krok 5 – bot
-- [ ] Bot staví, když má gold, a skládá jednoduché bludiště.
-- [ ] Spojuje dvojice, když může.
-- [ ] Posílá jednotky, když má gold navíc (aby to nebyla jen obrana).
+- [x] Bot staví, když má gold, a skládá bludiště „had“ (zdi přes lajnu s mezerou střídavě vlevo/vpravo), nikdy si cestu nezazdí.
+- [x] Spojuje dvojice, když může.
+- [x] Posílá jednotky z goldu navíc, během kola občas místo stavby investuje do income.
 - [ ] Úrovně obtížnosti bota (lehký / normální / těžký) – později.
 
 ### Krok 6 – testování a ladění na telefonu
-- [ ] Délka zápasu 4–5 min, rank 7 je reálný? Strop ceny stavby?
+- [ ] Délka zápasu 4–5 min, rank 7 je reálný? (Test: bez stropu měl bot v 7. kole jen 4 věže → přidán strop 100 g. Ověřit hraním.)
 - [ ] Ceny jednotek, income, gold za zabití, růst vln.
 
 ## Test na PC
 
 `AUTOPLAY=1 cargo run` přeskočí menu a rovnou spustí zápas.
+`HIDDEN_WINDOW=1` otevře okno mimo obrazovku (pro automatické testy).
 
 ## Další etapa (po botovi)
 Karty a truhly, výběr balíčku, úrovně karet, uložení progresu v telefonu → online 1v1, účty, žebříček → kosmetika, diamanty, obchod.

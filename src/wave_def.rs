@@ -215,8 +215,6 @@ pub fn enrage_for(kind: u8) -> Option<EnrageDef> {
         15 => Some(EnrageDef { hp_frac: 0.30, speed_bonus: 0.50, size_bonus: 0.0, flash: Color::srgba(1.0, 0.1, 0.1, 0.65) }), // Boss: jen rychlost, velikost se nemeni
         25 => Some(EnrageDef { hp_frac: 0.40, speed_bonus: 0.50, size_bonus: 0.0, flash: Color::srgba(1.0, 0.1, 0.1, 0.65) }), // Third Boss
         30 => Some(EnrageDef { hp_frac: 0.40, speed_bonus: 0.50, size_bonus: 0.0, flash: Color::srgba(1.0, 0.1, 0.1, 0.65) }), // Final Boss
-        25 => Some(EnrageDef { hp_frac: 0.40, speed_bonus: 0.50, size_bonus: 0.0, flash: Color::srgba(1.0, 0.1, 0.1, 0.65) }), // Third Boss
-        30 => Some(EnrageDef { hp_frac: 0.40, speed_bonus: 0.50, size_bonus: 0.0, flash: Color::srgba(1.0, 0.1, 0.1, 0.65) }), // Final Boss
         _ => None,
     }
 }

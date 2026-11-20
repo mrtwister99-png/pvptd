@@ -7,13 +7,14 @@ pub enum AppState {
     #[default]
     Menu,
     Playing,
+    DeckSelect, // vyber balicku 5 vezi
 }
 
 #[derive(Component)]
 pub struct MenuRoot;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum MenuAction { Play, Leaderboard, Settings, Exit }
+pub enum MenuAction { Play, Deck, Leaderboard, Settings, Exit }
 
 #[derive(Component)]
 pub struct MenuButton(pub MenuAction);
@@ -41,6 +42,7 @@ pub fn spawn_menu(mut commands: Commands) {
         p.spawn((Text::new("LINE TD"), TextFont { font_size: 48.0, ..default() }, TextColor(Color::srgb(1.0, 0.85, 0.2))));
         for (label, action, col) in [
             ("HRAT", MenuAction::Play, Color::srgb(0.15, 0.6, 0.2)),
+            ("BALICEK", MenuAction::Deck, Color::srgb(0.55, 0.45, 0.15)),
             ("ZEBRICEK", MenuAction::Leaderboard, Color::srgb(0.25, 0.3, 0.45)),
             ("NASTAVENI", MenuAction::Settings, Color::srgb(0.25, 0.3, 0.45)),
             ("EXIT", MenuAction::Exit, Color::srgb(0.6, 0.2, 0.15)),
@@ -71,6 +73,7 @@ pub fn menu_button_system(
         if *interaction != Interaction::Pressed { continue; }
         match button.0 {
             MenuAction::Play => next.set(AppState::Playing),
+            MenuAction::Deck => next.set(AppState::DeckSelect),
             _ => println!("Menu: tlacitko zatim bez funkce"),
         }
     }
