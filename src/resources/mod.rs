@@ -80,6 +80,11 @@ impl Default for Deck {
 #[derive(Resource, Default)]
 pub struct TowerDrag { pub from: Option<(usize, usize)>, pub start: Vec2, pub moved: bool }
 
+// ovladani klavesnici: Enter na prazdnem policku pripravi stavbu (druhy Enter postavi),
+// Enter na vezi ji vezme a nese (Enter na stejne vezi stejneho ranku = spojit, Esc = zrusit)
+#[derive(Resource, Default)]
+pub struct KeyControl { pub build_armed: Option<(usize, usize)>, pub carry: Option<(usize, usize)> }
+
 // na kterou lajnu se prave diva kamera
 #[derive(Resource)]
 pub struct ViewSide(pub crate::components::Side);

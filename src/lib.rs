@@ -43,11 +43,12 @@ pub fn main() {
         .insert_resource(WaveCount(0))
         .insert_resource(InputPointer::default())
         .insert_resource(HoverCell(None))
-        .insert_resource(SelectedCell(None))
+        .insert_resource(SelectedCell(Some((ROWS / 2, COLS / 2)))) // vzdy je nejake policko vybrane (klavesnice)
         .insert_resource(HeldBuilding(None))
         .insert_resource(PanelsOpen::default())
         .insert_resource(Deck::default())
         .insert_resource(TowerDrag::default())
+        .insert_resource(KeyControl::default())
         .add_systems(OnEnter(AppState::DeckSelect), deck::spawn_deck_screen)
         .add_systems(OnExit(AppState::DeckSelect), deck::despawn_deck_screen)
         .add_systems(Update, (deck::deck_input_system, deck::deck_display_system).run_if(in_state(AppState::DeckSelect)))
@@ -123,6 +124,8 @@ pub fn main() {
             bot_system,
             special_towers_system.after(build_creep_grid),
             tower_info_system,
+            opponent_hp_system,
+            keyboard_cursor_system.after(tower_drag_system),
         ).run_if(in_state(AppState::Playing)))
         .run();
 }
@@ -142,11 +145,12 @@ fn cleanup_game(
     commands.insert_resource(MatchOver::default());
     commands.insert_resource(WavePaused(false));
     commands.insert_resource(WaveCount(0));
-    commands.insert_resource(SelectedCell(None));
+    commands.insert_resource(SelectedCell(Some((ROWS / 2, COLS / 2))));
     commands.insert_resource(HoverCell(None));
     commands.insert_resource(HeldBuilding(None));
     commands.insert_resource(PanelsOpen::default());
     commands.insert_resource(TowerDrag::default());
+    commands.insert_resource(KeyControl::default());
     // pooly: jejich entity byly smazany, setup je vytvori znovu
     commands.insert_resource(DamageNumberPool::default());
     commands.insert_resource(BulletPool::default());
@@ -291,7 +295,7 @@ fn setup(
         BackgroundColor(Color::srgb(0.55, 0.2, 0.2)),
         SwitchViewButton,
     )).with_children(|p| {
-        p.spawn((Text::new("SOUPER"), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE), SwitchViewLabel));
+        p.spawn((Text::new("SOUPER"), TextFont { font_size: 12.0, ..default() }, TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center), SwitchViewLabel));
     });
 
     // === LEFT TOP pod odpoctem vlny - za kolik s prijde income (v zavorce celkovy income) ===

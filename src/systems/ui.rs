@@ -6,6 +6,17 @@ use crate::wave_def::get_creep_color_and_hp;
 use crate::constants::BOSS_EVERY;
 use crate::menu::AppState;
 
+// pravy horni ctverecek: vzdy zivoty soupere (bota) + kam tlacitko prepne
+pub fn opponent_hp_system(
+    sides: Res<Sides>,
+    view: Res<crate::resources::ViewSide>,
+    mut q: Query<&mut Text, With<crate::components::SwitchViewLabel>>,
+) {
+    let target = if view.0 == Side::Player { "SOUPER" } else { "MOJE" };
+    let s = format!("{} [TAB]\nBOT\n{} HP", target, sides.get(Side::Bot).lives);
+    for mut t in q.iter_mut() { if t.0 != s { t.0 = s.clone(); } }
+}
+
 pub fn update_ui(
     sides: Res<Sides>,
     diamonds: Res<Diamonds>,
@@ -108,6 +119,7 @@ pub fn tower_info_system(
     selected: Res<crate::resources::SelectedCell>,
     sides: Res<Sides>,
     panels: Res<crate::resources::PanelsOpen>,
+    kc: Res<crate::resources::KeyControl>,
     towers: Query<(&crate::components::Tower, Option<&crate::components::TowerMods>)>,
     mut q_panel: Query<&mut Node, With<crate::components::TowerInfoPanel>>,
     mut q_text: Query<&mut Text, With<crate::components::TowerInfoText>>,
@@ -148,5 +160,12 @@ pub fn tower_info_system(
 {}", deck.join(", "))
         }
     };
+    // napoveda pro klavesnici
+    let s = if let Some(from) = kc.carry {
+        let what = towers.iter().find(|(t, _)| t.side == Side::Player && t.row == from.0 && t.col == from.1).map(|(t, _)| format!("{} R{}", name_of(t.kind), t.level)).unwrap_or_default();
+        format!("NESES {}: sipkami na stejnou vez,\nEnter = spojit, Esc = zrusit\n\n{}", what, s)
+    } else if kc.build_armed == Some((r, c)) {
+        format!("Enter znovu = POSTAVIT\n\n{}", s)
+    } else { s };
     for mut t in q_text.iter_mut() { if t.0 != s { t.0 = s.clone(); } }
 }

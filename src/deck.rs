@@ -10,6 +10,22 @@ use crate::tower_def::get_tower_def;
 #[derive(Component)] pub struct DeckTowerButton(pub u8);
 #[derive(Component)] pub struct DeckDoneButton;
 #[derive(Component)] pub struct DeckCounterText;
+#[derive(Component)] pub struct DeckInfoText;
+
+// popis veze pro vyber balicku: co dela + cisla na R1 a R7
+fn deck_info(kind: u8) -> String {
+    let name = ALL_TOWERS.iter().find(|t| t.0 == kind).map_or("?", |t| t.1);
+    let mut s = format!("{}\n{}", name, crate::special::describe(kind, 1));
+    for rank in [1u32, 7] {
+        let d = get_tower_def(kind, rank);
+        if d.dmg_max > 0.0 {
+            s.push_str(&format!("\nR{}: poskozeni {:.0}-{:.0}, {:.2} utoku/s, dosah {:.0}", rank, d.dmg_min, d.dmg_max, 1.0 / d.interval.max(0.1), d.range));
+        } else if rank == 7 {
+            s.push_str(&format!("\nR7: {}", crate::special::describe(kind, 7)));
+        }
+    }
+    s
+}
 
 pub fn spawn_deck_screen(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
@@ -58,6 +74,13 @@ pub fn spawn_deck_screen(mut commands: Commands, asset_server: Res<AssetServer>)
                 });
             }
         });
+        // popis veze, na kterou ukazujes / klepnes
+        p.spawn((
+            Node { width: Val::Px(440.0), min_height: Val::Px(64.0), padding: UiRect::all(Val::Px(8.0)), ..default() },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
+        )).with_children(|b| {
+            b.spawn((Text::new("Najed / klepni na vez pro popis"), TextFont { font_size: 12.0, ..default() }, TextColor(Color::srgb(0.85, 0.85, 0.85)), DeckInfoText));
+        });
         p.spawn((
             Button,
             Node { width: Val::Px(200.0), height: Val::Px(56.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
@@ -79,8 +102,14 @@ pub fn deck_input_system(
     q_done: Query<&Interaction, (Changed<Interaction>, With<DeckDoneButton>)>,
     mut deck: ResMut<Deck>,
     mut next: ResMut<NextState<AppState>>,
+    mut q_info: Query<&mut Text, With<DeckInfoText>>,
 ) {
     for (i, b) in q_towers.iter() {
+        // najeti mysi nebo klepnuti = ukazat popis veze
+        if *i != Interaction::None {
+            let s = deck_info(b.0);
+            for mut t in q_info.iter_mut() { if t.0 != s { t.0 = s.clone(); } }
+        }
         if *i != Interaction::Pressed { continue; }
         if let Some(pos) = deck.0.iter().position(|&k| k == b.0) { deck.0.remove(pos); }
         else if deck.0.len() < DECK_SIZE { deck.0.push(b.0); }

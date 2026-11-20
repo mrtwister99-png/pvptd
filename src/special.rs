@@ -53,6 +53,13 @@ pub fn barracks_speed(rank: u32) -> f32 { 0.04 * rank.clamp(1, 7) as f32 }
 pub fn describe(kind: u8, rank: u32) -> String {
     let pct = |x: f32| (x * 100.0).round() as i32;
     match kind {
+        1 => "Rychle strely na jeden cil".to_string(),
+        2 => "Plosne poskozeni, jen na zem".to_string(),
+        3 => "Zmrazi a zpomali vic creepu naraz".to_string(),
+        4 => "Zapali creepy (poskozeni v case), plosne".to_string(),
+        5 => "Jed (poskozeni v case) a mirne zpomaleni".to_string(),
+        6 => "Velky dosah, silna pomala rana".to_string(),
+        7 => "Blesk preskakuje na dalsi creepy, muze omracit a odhodit".to_string(),
         HARPOON => "Strili jen na letajici a srazi je na zem".to_string(),
         GEYSER => "Pulz odhodi pozemni creepy v okoli zpet".to_string(),
         EXECUTIONER => {

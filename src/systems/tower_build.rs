@@ -1,7 +1,7 @@
 
 use bevy::prelude::*;
-use crate::components::{Side, SwitchViewButton, SwitchViewLabel, Tower, Selling, UpgradeLabel, SellLabel, RangeRing, RangeRingNext, HoverHighlight, TowerLevelText, PauseButtonUI, BuildPreview, SendToggleButton, SendPanel, TowerActionPanel, UpgradeButton, SellButton, SelectionMarker, SafeRoot};
-use crate::resources::{HoverCell, SelectedCell, Sides, ViewSide, MatchOver, TowerDrag, WavePaused, HeldBuilding, PanelsOpen, InputPointer, SafeInsets};
+use crate::components::{Side, SwitchViewButton, Tower, Selling, UpgradeLabel, SellLabel, RangeRing, RangeRingNext, HoverHighlight, TowerLevelText, PauseButtonUI, BuildPreview, SendToggleButton, SendPanel, TowerActionPanel, UpgradeButton, SellButton, SelectionMarker, SafeRoot};
+use crate::resources::{HoverCell, SelectedCell, Sides, ViewSide, MatchOver, TowerDrag, KeyControl, WavePaused, HeldBuilding, PanelsOpen, InputPointer, SafeInsets};
 use crate::constants::{CELL, LANE_H, LANE_W, CAM_BASE_Y, tower_icon_path, MAX_TOWER_LEVEL, SELL_SECONDS, SELL_REFUND, BUILD_COST_STEP, ROWS, COLS};
 use rand::Rng;
 use crate::tower_def::get_tower_def;
@@ -253,6 +253,7 @@ pub fn panels_display_system(
     panels: Res<PanelsOpen>,
     sides: Res<Sides>,
     selected_cell: Res<SelectedCell>,
+    kc: Res<KeyControl>,
     q_towers: Query<(&Tower, Has<Selling>)>,
     mut q_send: Query<&mut Node, (With<SendPanel>, Without<TowerActionPanel>, Without<UpgradeButton>, Without<SellButton>)>,
     mut q_action: Query<&mut Node, (With<TowerActionPanel>, Without<SendPanel>, Without<UpgradeButton>, Without<SellButton>)>,
@@ -273,9 +274,10 @@ pub fn panels_display_system(
         None => {
             // POSTAVIT: cena dalsi stavby, ztmavene bez penez
             let cost = build_cost(st.builds);
-            let up = format!("POSTAVIT\n{}G", cost);
+            let armed = kc.build_armed == Some((r, c));
+            let up = if armed { format!("ENTER =\nPOSTAVIT\n{}G", cost) } else { format!("POSTAVIT\n{}G", cost) };
             for mut t in q_up_label.iter_mut() { if t.0 != up { t.0 = up.clone(); } }
-            let col = if st.gold >= cost { Color::srgb(0.15, 0.6, 0.2) } else { Color::srgb(0.07, 0.15, 0.08) };
+            let col = if armed { Color::srgb(0.85, 0.7, 0.1) } else if st.gold >= cost { Color::srgb(0.15, 0.6, 0.2) } else { Color::srgb(0.07, 0.15, 0.08) };
             for (mut bg, _) in q_up_btn.iter_mut() { if bg.0 != col { bg.0 = col; } }
         }
         Some((invested, selling)) => {
@@ -488,12 +490,12 @@ pub fn switch_view_system(
     q_btn: Query<&Interaction, (Changed<Interaction>, With<SwitchViewButton>)>,
     mut view: ResMut<ViewSide>,
     mut cam: Query<&mut Transform, With<Camera2d>>,
-    mut q_label: Query<&mut Text, With<SwitchViewLabel>>,
     mut q_btn_bg: Query<&mut BackgroundColor, With<SwitchViewButton>>,
     mut held: ResMut<HeldBuilding>,
     mut panels: ResMut<PanelsOpen>,
     mut selected: ResMut<SelectedCell>,
     mut drag: ResMut<TowerDrag>,
+    mut kc: ResMut<KeyControl>,
 ) {
     let clicked = q_btn.iter().any(|i| *i == Interaction::Pressed);
     if !clicked && !keys.just_pressed(KeyCode::Tab) { return; }
@@ -503,14 +505,16 @@ pub fn switch_view_system(
     if let Ok(mut tf) = cam.get_single_mut() { tf.translation.x += view.0.lane_x() - from.lane_x(); }
     // na lajne soupere se nestavi: zrusit drzenou budovu, vyber a stavebni nabidku
     drag.from = None;
+    kc.carry = None;
+    kc.build_armed = None;
     if view.0 != Side::Player {
         held.0 = None;
         selected.0 = None;
         panels.build = false;
         panels.build_target = None;
     }
-    let (label, col) = if view.0 == Side::Player { ("SOUPER", Color::srgb(0.55, 0.2, 0.2)) } else { ("MOJE\nLAJNA", Color::srgb(0.2, 0.45, 0.25)) };
-    for mut t in q_label.iter_mut() { t.0 = label.to_string(); }
+    // popisek tlacitka (vcetne zivotu soupere) prepisuje opponent_hp_system
+    let col = if view.0 == Side::Player { Color::srgb(0.55, 0.2, 0.2) } else { Color::srgb(0.2, 0.45, 0.25) };
     for mut bg in q_btn_bg.iter_mut() { bg.0 = col; }
 }
 
@@ -591,6 +595,90 @@ pub fn tower_drag_system(
             if !try_merge(&mut commands, &asset_server, &mut sides, Side::Player, a, b) {
                 println!("Tyhle veze se spojit nedaji (musi byt stejny druh a rank, max R{})", MAX_TOWER_LEVEL);
             }
+        }
+    }
+}
+
+// KLAVESNICE: sipky posouvaji vybrane policko (vzdy nejake je), Enter stavi / bere a spojuje veze, Esc rusi
+pub fn keyboard_cursor_system(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut selected: ResMut<SelectedCell>,
+    mut kc: ResMut<KeyControl>,
+    mut sides: ResMut<Sides>,
+    mut panels: ResMut<PanelsOpen>,
+    asset_server: Res<AssetServer>,
+    view: Res<ViewSide>,
+    over: Res<MatchOver>,
+    drag: Res<TowerDrag>,
+    q_towers: Query<(Entity, &Tower, &Sprite), (Without<Selling>, Without<BuildPreview>)>,
+    mut q_ghost: Query<(&mut Transform, &mut Visibility, &mut Sprite), (With<BuildPreview>, Without<Tower>)>,
+) {
+    if view.0 != Side::Player || over.0.is_some() {
+        kc.build_armed = None;
+        kc.carry = None;
+    } else {
+        let tower_at = |cell: (usize, usize)| q_towers.iter().find(|(_, t, _)| t.side == Side::Player && t.row == cell.0 && t.col == cell.1);
+        // nesena vez mezitim zmizela (prodej, hlidac) -> zrusit
+        if let Some(from) = kc.carry { if tower_at(from).is_none() { kc.carry = None; } }
+
+        // sipky: radek 0 je dole (cil), nahoru = vyssi radek
+        let mut d: (i32, i32) = (0, 0);
+        if keys.just_pressed(KeyCode::ArrowUp) { d.0 += 1; }
+        if keys.just_pressed(KeyCode::ArrowDown) { d.0 -= 1; }
+        if keys.just_pressed(KeyCode::ArrowLeft) { d.1 -= 1; }
+        if keys.just_pressed(KeyCode::ArrowRight) { d.1 += 1; }
+        if d != (0, 0) {
+            let (r, c) = selected.0.unwrap_or((ROWS / 2, COLS / 2));
+            let r = (r as i32 + d.0).clamp(0, ROWS as i32 - 1) as usize;
+            let c = (c as i32 + d.1).clamp(0, COLS as i32 - 1) as usize;
+            selected.0 = Some((r, c));
+            panels.send = false;
+        }
+        if keys.just_pressed(KeyCode::Escape) { kc.build_armed = None; kc.carry = None; }
+
+        if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter) {
+            match selected.0 {
+                None => selected.0 = Some((ROWS / 2, COLS / 2)),
+                Some(cell) => {
+                    if let Some(from) = kc.carry {
+                        // neseme vez: Enter na stejnem miste = polozit zpet, na stejne vezi stejneho ranku = spojit, jinde nic
+                        if from == cell { kc.carry = None; }
+                        else if let (Some((ea, ta, _)), Some((eb, tb, _))) = (tower_at(from), tower_at(cell)) {
+                            if try_merge(&mut commands, &asset_server, &mut sides, Side::Player, TowerRef::of(ea, ta), TowerRef::of(eb, tb)) { kc.carry = None; }
+                        }
+                    } else if tower_at(cell).is_some() {
+                        kc.build_armed = None;
+                        kc.carry = Some(cell); // vzit vez
+                    } else if kc.build_armed == Some(cell) {
+                        try_build_random(Side::Player, cell.0, cell.1, &mut commands, &mut sides, &asset_server); // druhy Enter = postavit
+                        kc.build_armed = None;
+                    } else {
+                        kc.build_armed = Some(cell); // prvni Enter = pripravit POSTAVIT
+                    }
+                }
+            }
+        }
+        // priprava stavby plati jen pro policko, na kterem vznikla
+        if kc.build_armed.is_some() && kc.build_armed != selected.0 { kc.build_armed = None; }
+    }
+
+    // duch nesene veze na vybranem policku (pri tahu mysi ducha ridi tower_drag_system)
+    if drag.from.is_some() { return; }
+    let src = kc.carry.and_then(|from| q_towers.iter().find(|(_, t, _)| t.side == Side::Player && t.row == from.0 && t.col == from.1));
+    for (mut tf, mut vis, mut sprite) in q_ghost.iter_mut() {
+        match (src, selected.0) {
+            (Some((_, _, src)), Some((r, c))) => {
+                let p = grid_to_world(Side::Player, r, c);
+                tf.translation.x = p.x;
+                tf.translation.y = p.y;
+                sprite.image = src.image.clone();
+                let col = src.color.to_srgba();
+                sprite.color = Color::srgba(col.red, col.green, col.blue, 0.6);
+                sprite.custom_size = src.custom_size;
+                if *vis != Visibility::Visible { *vis = Visibility::Visible; }
+            }
+            _ => { if *vis != Visibility::Hidden { *vis = Visibility::Hidden; } }
         }
     }
 }
