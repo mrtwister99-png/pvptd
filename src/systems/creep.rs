@@ -4,7 +4,7 @@ use rand::Rng;
 use crate::components::{Creep, CreepMainCircle, Health, MaxHealth, CreepHpText, CreepStatusText, SlowOutline, SlowDebuff, BurnDebuff, HpBarBg, HpBarFill, HpBarText, SentUnit, SendPanelItem, IncomeText, Knockback, Air, Enrage, EnrageFlash, Resist, Guardian, Heal, Tower, Aura, AuraBuff, ShootBack, TowerSlow, FrostOverlay, Shimmer, GuardianMsg, CheatButton, TowerAura, TowerMods};
 use crate::resources::{CreepAssets, RoundState, RoundPhase, MatchOver, WavePaused, WaveCount, Diamonds, Grid, PathMap, Sides, SelectedCell};
 use crate::components::Side;
-use crate::constants::{LANE_Y, LANE_W, LANE_H, CREEP_BASE_SPEED, CREEP_GROWTH_PER_WAVE, CREEP_GROWTH_MAX_SCALE, FROST_OUTLINE_MAX_EXTRA, COLS, ROWS, LEAK_GOLD_RATIO, CELL, SPAWN_ABOVE, TOTAL_LIVES, ROUND_PAUSE_SECS, ROUND_MAX_SECS, BOSS_EVERY, ELITE_HP_MUL, BOSS_HP_MUL, LATE_ROUND, LATE_ROUND_HP_GROWTH, LEAK_NORMAL, LEAK_ELITE, LEAK_BOSS};
+use crate::constants::{LANE_Y, LANE_W, LANE_H, CREEP_BASE_SPEED, CREEP_GROWTH_PER_WAVE, CREEP_GROWTH_MAX_SCALE, FROST_OUTLINE_MAX_EXTRA, COLS, ROWS, LEAK_GOLD_RATIO, CELL, SPAWN_ABOVE, TOTAL_LIVES, ROUND_PAUSE_SECS, ROUND_MAX_SECS, BOSS_EVERY, ELITE_HP_MUL, BOSS_HP_MUL, LATE_ROUND, LATE_ROUND_HP_GROWTH, LEAK_NORMAL, LEAK_ELITE, LEAK_BOSS, KILL_GOLD_NORMAL, KILL_GOLD_ELITE, KILL_GOLD_BOSS, KILL_GOLD_MEGA};
 use crate::wave_def::{get_wave_def, get_unit_def, income_multiplier, is_air, enrage_for, resist_for, heal_for, aura_for, shoot_back_for, shimmer_for, tower_aura_for};
 use crate::utils::{world_to_grid, grid_to_world, compute_path};
 
@@ -344,24 +344,26 @@ pub fn despawn_dead_and_count(
     mut over: ResMut<MatchOver>,
     q_creeps: Query<(Entity, &Transform, &Health, &Creep, &Side, Option<&SentUnit>), With<Creep>>,
 ) {
-    let mut dead: Vec<(Entity, Side, bool, bool, bool)> = Vec::new(); // (entity, lajna, boss, mega, odeslana jednotka)
+    let mut dead: Vec<(Entity, Side, bool, bool, bool)> = Vec::new(); // (entity, lajna, boss, mega NEBO vetsi creep, odeslana jednotka)
     let mut out: Vec<(Entity, Side, u32, Option<i32>)> = Vec::new();  // (entity, lajna, cena v zivotech, cena odeslane jednotky; None = bezny creep)
     for (e, tf, hp, creep, &side, unit) in q_creeps.iter() {
-        if hp.0 <= 0.0 { dead.push((e, side, creep.is_boss, creep.is_mega, unit.is_some())); }
+        if hp.0 <= 0.0 { dead.push((e, side, creep.is_boss, creep.is_mega || (creep.leak_cost == LEAK_ELITE && !creep.is_boss), unit.is_some())); }
         else if tf.translation.y < crate::constants::LANE_Y - crate::constants::LANE_H / 2.0 - 10.0 {
             out.push((e, side, creep.leak_cost, unit.map(|u| u.cost)));
         }
     }
-    for (e, side, is_boss, is_mega, is_unit) in dead {
+    for (e, side, is_boss, mega_or_elite, is_unit) in dead {
         commands.entity(e).despawn_recursive();
         if is_unit { continue; } // odeslana jednotka: za zabiti zadny gold
         // gold dostane ten, na ci lajne creep padl
         let st = sides.get_mut(side);
-        if is_mega {
-            st.gold += 50;
-            if side == Side::Player { diamonds.0 += 1; println!("MEGA BOSS zabit! +50G +1 diamant"); }
+        if is_boss && mega_or_elite {
+            st.gold += KILL_GOLD_MEGA;
+            if side == Side::Player { diamonds.0 += 1; println!("MEGA BOSS zabit! +{}G +1 diamant", KILL_GOLD_MEGA); }
         }
-        else if is_boss { st.gold += 25; } else { st.gold += 8; }
+        else if is_boss { st.gold += KILL_GOLD_BOSS; }
+        else if mega_or_elite { st.gold += KILL_GOLD_ELITE; }
+        else { st.gold += KILL_GOLD_NORMAL; }
     }
     for (e, side, leak_cost, sent_cost) in out {
         commands.entity(e).despawn_recursive();

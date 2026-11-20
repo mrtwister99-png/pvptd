@@ -11,7 +11,12 @@ pub const SPAWN_ABOVE: f32 = 120.0; // o kolik nad horni okraj lajny se rodi cre
 // bezpecna oblast (systemove listy telefonu): nahore stav/cas/baterie, dole tlacitka zpet/home; na PC 0. Doladit podle telefonu.
 pub const SAFE_TOP: f32 = 0.0;    // okraje systemovych list se ted ctou z Androidu (safe_area_system), tady zustava jen ruzna rezerva
 pub const SAFE_BOTTOM: f32 = 0.0;
-pub const BASE_INCOME: f32 = 10.0; // zakladni income (gold za tik 7 s) uz od zacatku hry
+pub const BASE_INCOME: f32 = 20.0; // zakladni income (gold za tik 7 s) uz od zacatku hry
+// gold za zabiti creepu automaticke vlny (poslane jednotky gold nedavaji)
+pub const KILL_GOLD_NORMAL: i32 = 15;
+pub const KILL_GOLD_ELITE: i32 = 40;
+pub const KILL_GOLD_BOSS: i32 = 80;
+pub const KILL_GOLD_MEGA: i32 = 150;
 // zaloha pro Android, kdyz se okraje systemovych list nepodari precist (logicke px; z logu: stavova lista 128 px, navigacni 168 px pri hustote 3.75)
 pub const FALLBACK_INSET_TOP: f32 = 34.0;
 pub const FALLBACK_INSET_BOTTOM: f32 = 46.0;

@@ -69,10 +69,10 @@ Rychlá a pestrá mobilní **1v1 PvP tower defense**. Kořeny má v Line Tower W
 
 ### B. Ekonomika (2026-11-20)
 
-- **Start**: **100 g** (na začátku jdou postavit 4 věže: 10+20+30+40 g), income **10**.
+- **Start**: **100 g** (na začátku jdou postavit 4 věže: 10+20+30+40 g), income **20**.
 - **Income tick každých 7 s**: dostaneš tolik goldu, kolik máš income.
 - **Poslaná jednotka trvale zvedne income** (např. Sheep za 5 g → +1).
-- **Gold za zabití creepa**: ano.
+- **Gold za zabití creepa**: normální 15, větší 40, boss 80, mega boss 150 (poslané jednotky nic).
 - Tím se **ruší** dosavadní vylepšování lvl 1–5 za gold (Basic Tower → Phantom Archer…). Síla věže = úroveň karty × rank v zápase.
 
 ### Věže (2026-11-20) – 18 druhů, balíček 5 z 18
