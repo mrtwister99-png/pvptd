@@ -114,7 +114,7 @@ pub fn freeze_system(
             // get_entity: creep mohl byt mezitim despawnuty
             if let Some(mut ec) = commands.get_entity(c_ent) {
                 let f = 1.0 - (1.0 - factor) * (1.0 - resists.get(c_ent).map_or(0.0, |r| r.slow)); // odolnost zmensi silu slow (Ogre 20 %)
-                ec.insert(SlowDebuff { timer: Timer::from_seconds(FREEZE_SECS, TimerMode::Once), factor: f });
+                ec.try_insert(SlowDebuff { timer: Timer::from_seconds(FREEZE_SECS, TimerMode::Once), factor: f });
             }
         }
     }
@@ -282,7 +282,7 @@ pub fn ignite_visual_system(
             (None, Some(s)) => Some(s.color),
             _ => None,
         };
-        if let Some(base) = base { commands.entity(e).insert(Ignited { base }); }
+        if let Some(base) = base { if let Some(mut ec) = commands.get_entity(e) { ec.try_insert(Ignited { base }); } } // try_insert: creep mohl ve stejnem snimku umrit
     }
     let alpha = (1.0 + (time.elapsed_secs() * IGNITE_PULSE_SPEED).sin() * IGNITE_PULSE_AMOUNT).min(1.0);
     let fire = Color::srgba(IGNITE_RGB.0, IGNITE_RGB.1, IGNITE_RGB.2, alpha);
@@ -290,6 +290,6 @@ pub fn ignite_visual_system(
         let color = if burning { fire } else { ignited.base };
         if let Some(m) = mat { if let Some(m) = materials.get_mut(&m.0) { m.color = color; } }
         if let Some(mut s) = sprite { s.color = color; }
-        if !burning { commands.entity(e).remove::<Ignited>(); }
+        if !burning { if let Some(mut ec) = commands.get_entity(e) { ec.remove::<Ignited>(); } }
     }
 }

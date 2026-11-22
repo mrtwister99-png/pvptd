@@ -9,6 +9,7 @@ mod systems;
 mod menu;
 mod deck;
 mod special;
+mod fx;
 use constants::{COLS, ROWS, CELL, LANE_W, LANE_H, LANE_Y, FINISH_EXTRA_ROWS, SAFE_TOP, SAFE_BOTTOM, CAM_BASE_Y};
 use resources::*;
 use components::*;
@@ -28,9 +29,11 @@ pub fn main() {
             }),
             ..default()
         }))
+        .add_plugins(fx::FxPlugin)
         .init_state::<AppState>()
         .add_systems(Startup, spawn_camera)
         .add_systems(Startup, autoplay_system)
+        .add_systems(Update, dev_screenshot_system.run_if(in_state(AppState::Playing)))
         .add_systems(OnEnter(AppState::Menu), spawn_menu)
         .add_systems(OnExit(AppState::Menu), despawn_menu)
         .add_systems(Update, menu_button_system.run_if(in_state(AppState::Menu)))
@@ -60,6 +63,7 @@ pub fn main() {
         .insert_resource(HealRingPool::default())
         .insert_resource(SafeInsets::default())
         .add_systems(OnEnter(AppState::Playing), (setup, adopt_ui_system).chain())
+        .add_systems(OnEnter(AppState::Playing), fx::setup_fx)
         .add_systems(OnExit(AppState::Playing), cleanup_game)
         .add_systems(OnEnter(AppState::Playing), (setup_damage_pool, setup_bullet_pool, setup_creep_assets, setup_particle_pool, setup_bolt_pool, setup_heal_ring_pool))
         .add_systems(Update, (
@@ -160,6 +164,39 @@ fn cleanup_game(
     commands.insert_resource(HealRingPool::default());
 }
 
+// test na PC: SCREENSHOT_AT="20,40" + SCREENSHOT_DIR=slozka ulozi screenshoty v danych sekundach zapasu
+// (SCREENSHOT_VIEW=bot = kamera na lajne bota; 0,5 s pred snimkem se vybere vlastni vez, at je videt kruh dosahu)
+fn dev_screenshot_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut start: Local<Option<f32>>,
+    mut done: Local<usize>,
+    mut view: ResMut<ViewSide>,
+    mut cam: Query<&mut Transform, With<Camera2d>>,
+    mut selected: ResMut<SelectedCell>,
+    towers: Query<&Tower>,
+) {
+    let Ok(at) = std::env::var("SCREENSHOT_AT") else { return; };
+    let times: Vec<f32> = at.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+    let t0 = *start.get_or_insert(time.elapsed_secs());
+    let t = time.elapsed_secs() - t0;
+    if std::env::var("SCREENSHOT_VIEW").map_or(false, |v| v == "bot") && view.0 != Side::Bot {
+        view.0 = Side::Bot;
+        if let Ok(mut tf) = cam.get_single_mut() { tf.translation.x = Side::Bot.lane_x(); }
+    }
+    let Some(&next) = times.get(*done) else { return; };
+    if t >= next - 0.5 {
+        if let Some(tw) = towers.iter().find(|tw| tw.side == view.0 && tw.range > 0.0) { if view.0 == Side::Player { selected.0 = Some((tw.row, tw.col)); } }
+    }
+    if t >= next {
+        let dir = std::env::var("SCREENSHOT_DIR").unwrap_or_else(|_| ".".into());
+        let path = format!("{}/shot_{}.png", dir, *done);
+        println!("SCREENSHOT {}", path);
+        commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path));
+        *done += 1;
+    }
+}
+
 // test na PC: s promennou prostredi AUTOPLAY=1 se preskoci menu a rovnou zacne zapas
 fn autoplay_system(mut next: ResMut<NextState<AppState>>) {
     if std::env::var("AUTOPLAY").is_ok() { next.set(AppState::Playing); }
@@ -172,6 +209,7 @@ fn setup(
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut range_mats: ResMut<Assets<fx::RangeMaterial>>,
 ) {
     // kamera se spousti uz v menu (menu::spawn_camera)
     for st in sides.0.iter_mut() { st.path.dist = compute_path(&st.grid.blocked); }
@@ -254,7 +292,9 @@ fn setup(
 
     // kruh dosahu veze (bily) a kruh dosahu po upgradu (zeleny, ukaze se pri najeti na UPGRADE)
     let ring_mesh = meshes.add(Annulus::new(0.994, 1.0));
-    commands.spawn((Mesh2d(ring_mesh.clone()), MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::srgba(1.0, 1.0, 1.0, 0.45)))), Transform::from_xyz(0.0, 0.0, 3.0), Visibility::Hidden, RangeRing));
+    // kruh dosahu = shader (assets/shaders/range.wgsl) na ctverci 1x1, velikost pres scale (2 x polomer)
+    let range_mat = range_mats.add(fx::RangeMaterial { params: fx::range_params(Color::srgba(1.0, 1.0, 1.0, 0.9), 100.0) });
+    commands.spawn((Mesh2d(meshes.add(Rectangle::new(1.0, 1.0))), MeshMaterial2d(range_mat), Transform::from_xyz(0.0, 0.0, 3.0), Visibility::Hidden, RangeRing));
     commands.spawn((Mesh2d(ring_mesh), MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::srgba(0.3, 1.0, 0.3, 0.8)))), Transform::from_xyz(0.0, 0.0, 3.1), Visibility::Hidden, RangeRingNext));
 
     // === TOP UI ===

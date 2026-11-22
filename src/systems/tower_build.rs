@@ -101,7 +101,7 @@ pub fn sell_tower_input(
             if let Ok(mut txt) = q_level_text.get_mut(child) { txt.0 = format!("R{}", tower.level); }
         }
     } else {
-        commands.entity(ent).insert(Selling { timer: Timer::from_seconds(SELL_SECONDS, TimerMode::Once) });
+        commands.entity(ent).try_insert(Selling { timer: Timer::from_seconds(SELL_SECONDS, TimerMode::Once) });
     }
 }
 
@@ -297,23 +297,38 @@ pub fn range_rings_system(
     selected_cell: Res<SelectedCell>,
     q_up_btn: Query<&Interaction, With<UpgradeButton>>,
     q_towers: Query<(&Tower, &Transform)>,
-    mut q_ring: Query<(&mut Transform, &mut Visibility), (With<RangeRing>, Without<RangeRingNext>, Without<Tower>)>,
+    mut q_ring: Query<(&mut Transform, &mut Visibility, &MeshMaterial2d<crate::fx::RangeMaterial>), (With<RangeRing>, Without<RangeRingNext>, Without<Tower>)>,
+    mut range_mats: ResMut<Assets<crate::fx::RangeMaterial>>,
+    mut last: Local<Option<(u8, u32)>>, // pro jakou vez (druh, polomer) je material nastaveny
     mut q_next: Query<(&mut Transform, &mut Visibility), (With<RangeRingNext>, Without<RangeRing>, Without<Tower>)>,
 ) {
     let mut ring: Option<(Vec2, f32)> = None; // (stred, polomer)
+    let mut ring_kind: u8 = 0;
     let mut next: Option<f32> = None;          // polomer po upgradu
     if let Some(kind) = held.0 {
         if let Some((r, c)) = hover.0 { ring = Some((grid_to_world(Side::Player, r, c), get_tower_def(kind, 1).range)); }
     } else if let Some((r, c)) = selected_cell.0 {
         if let Some((tower, tf)) = q_towers.iter().find(|(t, _)| t.side == Side::Player && t.row == r && t.col == c) {
             ring = Some((tf.translation.truncate(), tower.range));
+            ring_kind = tower.kind;
             let hovering_up = q_up_btn.iter().any(|i| *i != Interaction::None);
             if hovering_up && tower.level < MAX_TOWER_LEVEL { next = Some(get_tower_def(tower.kind, tower.level + 1).range); }
         }
     }
-    for (mut tf, mut vis) in q_ring.iter_mut() {
+    for (mut tf, mut vis, mat) in q_ring.iter_mut() {
         match ring {
-            Some((c, r)) => { tf.translation.x = c.x; tf.translation.y = c.y; tf.scale = Vec3::new(r, r, 1.0); *vis = Visibility::Visible; }
+            Some((c, r)) => {
+                tf.translation.x = c.x; tf.translation.y = c.y; tf.scale = Vec3::new(r * 2.0, r * 2.0, 1.0);
+                if *vis != Visibility::Visible { *vis = Visibility::Visible; }
+                // barva podle veze (svetlejsi), material se prepise jen kdyz se zmeni vez nebo polomer
+                let key = (ring_kind, r as u32);
+                if *last != Some(key) {
+                    *last = Some(key);
+                    let col = get_tower_def(ring_kind.max(1), 1).color.to_srgba();
+                    let light = Color::srgba(0.5 + col.red * 0.5, 0.5 + col.green * 0.5, 0.5 + col.blue * 0.5, 0.95);
+                    if let Some(m) = range_mats.get_mut(&mat.0) { m.params = crate::fx::range_params(light, r); }
+                }
+            }
             None => { if *vis != Visibility::Hidden { *vis = Visibility::Hidden; } }
         }
     }

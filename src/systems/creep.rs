@@ -476,18 +476,18 @@ pub fn spawn_sent_unit(
         SentUnit { cost: def.cost },
         side,
     ));
-    if air { ec.insert(Air); }
-    if let Some(en) = enrage_for(kind) { ec.insert(Enrage { hp_frac: en.hp_frac, speed_bonus: en.speed_bonus, size_bonus: en.size_bonus, flash: en.flash }); } // jen jednotky s enrage v tabulce
-    if let Some(r) = resist_for(kind) { ec.insert(Resist { stun_immune: r.stun_immune, push: r.push, slow: r.slow, dmg_mul: r.dmg_mul }); } // jen jednotky s odolnosti v tabulce
-    if let Some(h) = heal_for(kind) { ec.insert(Heal { radius: h.radius, hps: h.hps, tick: Timer::from_seconds(HEAL_TICK_SECS, TimerMode::Repeating) }); } // jen lecitel
-    if let Some(a) = aura_for(kind) { ec.insert(Aura { radius: a.radius, hp_bonus: a.hp_bonus }); } // jen Captain
-    if let Some(s) = shoot_back_for(kind) { ec.insert(ShootBack { range: s.range, slow: s.slow, secs: s.secs, tick: Timer::from_seconds(s.interval, TimerMode::Repeating) }); } // jen Frost Archer
-    if let Some(a) = tower_aura_for(kind) { ec.insert(TowerAura { radius: a.radius, random_target: a.random_target, dmg_mul: a.dmg_mul, range_mul: a.range_mul, rate_mul: a.rate_mul, stomp_every: a.stomp_every, stomp_stun: a.stomp_stun, timer: Timer::from_seconds(a.stomp_every.max(0.1), TimerMode::Repeating) }); } // jen creepi s aurou na veze
+    if air { ec.try_insert(Air); }
+    if let Some(en) = enrage_for(kind) { ec.try_insert(Enrage { hp_frac: en.hp_frac, speed_bonus: en.speed_bonus, size_bonus: en.size_bonus, flash: en.flash }); } // jen jednotky s enrage v tabulce
+    if let Some(r) = resist_for(kind) { ec.try_insert(Resist { stun_immune: r.stun_immune, push: r.push, slow: r.slow, dmg_mul: r.dmg_mul }); } // jen jednotky s odolnosti v tabulce
+    if let Some(h) = heal_for(kind) { ec.try_insert(Heal { radius: h.radius, hps: h.hps, tick: Timer::from_seconds(HEAL_TICK_SECS, TimerMode::Repeating) }); } // jen lecitel
+    if let Some(a) = aura_for(kind) { ec.try_insert(Aura { radius: a.radius, hp_bonus: a.hp_bonus }); } // jen Captain
+    if let Some(s) = shoot_back_for(kind) { ec.try_insert(ShootBack { range: s.range, slow: s.slow, secs: s.secs, tick: Timer::from_seconds(s.interval, TimerMode::Repeating) }); } // jen Frost Archer
+    if let Some(a) = tower_aura_for(kind) { ec.try_insert(TowerAura { radius: a.radius, random_target: a.random_target, dmg_mul: a.dmg_mul, range_mul: a.range_mul, rate_mul: a.rate_mul, stomp_every: a.stomp_every, stomp_stun: a.stomp_stun, timer: Timer::from_seconds(a.stomp_every.max(0.1), TimerMode::Repeating) }); } // jen creepi s aurou na veze
     match def.image {
         // jednotky s obrazkem
-        Some(path) => { ec.insert(Sprite { image: asset_server.load(path), custom_size: Some(Vec2::splat(radius * 2.0)), ..default() }); }
+        Some(path) => { ec.try_insert(Sprite { image: asset_server.load(path), custom_size: Some(Vec2::splat(radius * 2.0)), ..default() }); }
         // ostatni jen kolecko
-        None => { ec.insert((Mesh2d(meshes.add(Circle::new(radius))), MeshMaterial2d(materials.add(ColorMaterial::from_color(def.color))))); }
+        None => { ec.try_insert((Mesh2d(meshes.add(Circle::new(radius))), MeshMaterial2d(materials.add(ColorMaterial::from_color(def.color))))); }
     }
     let unit_mesh = assets.unit_circle.clone();
     let slow_mat = assets.slow_mat.clone();
@@ -680,7 +680,7 @@ pub fn aura_system(
                 let delta = max_hp.0 * b;
                 max_hp.0 += delta;
                 hp.0 += delta;
-                if let Some(mut ec) = commands.get_entity(e) { ec.insert(AuraBuff { delta }); }
+                if let Some(mut ec) = commands.get_entity(e) { ec.try_insert(AuraBuff { delta }); }
             }
             // vysel z aury / Captain zmizel: bonus pryc, HP se oseknou na nove max
             (None, Some(buff)) => {
@@ -717,7 +717,7 @@ pub fn shoot_back_system(
         }
         let Some((t_ent, t_pos, _, slowed)) = best else { continue; };
         if let Some(mut ec) = commands.get_entity(t_ent) {
-            ec.insert(TowerSlow { timer: Timer::from_seconds(sb.secs, TimerMode::Once), factor: 1.0 - sb.slow });
+            ec.try_insert(TowerSlow { timer: Timer::from_seconds(sb.secs, TimerMode::Once), factor: 1.0 - sb.slow });
             if !slowed {
                 // znazorneni zmrazeni: ledovy ctverec + modry kruh kolem veze (jen pri prvnim zasahu; obnova jen prodlouzi cas)
                 let ring = assets.unit_circle.clone();
@@ -1011,7 +1011,7 @@ pub fn tower_aura_system(
     }
     for (t_ent, t_tf, mods) in towers.iter_mut() {
         let Some(mut mods) = mods else {
-            if let Some(mut ec) = commands.get_entity(t_ent) { ec.insert(TowerMods::default()); } // vez dostane komponentu, pocita se od pristiho snimku
+            if let Some(mut ec) = commands.get_entity(t_ent) { ec.try_insert(TowerMods::default()); } // vez dostane komponentu, pocita se od pristiho snimku
             continue;
         };
         let t_pos = t_tf.translation.truncate();

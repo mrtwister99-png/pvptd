@@ -70,6 +70,8 @@ pub fn tower_shoot(
     mut tex_cache: Local<HashMap<&'static str, Handle<Image>>>, // textury strel nacist jen jednou
     mut towers: Query<(&Transform, &mut Tower, Option<&crate::components::TowerSlow>, Option<&crate::components::TowerMods>), (With<Tower>, Without<Creep>)>,
     creeps: Query<(&Transform, Has<Air>), (With<Creep>, Without<Tower>)>,
+    mut fx: ResMut<crate::fx::FxAssets>,
+    mut glow_mats: ResMut<Assets<crate::fx::GlowMaterial>>,
 ) {
     let mut rng = rand::thread_rng();
     for (t_tf, mut tower, t_slow, mods) in towers.iter_mut() {
@@ -103,15 +105,24 @@ pub fn tower_shoot(
 
         let atk = attack_def(tower.kind);
         let size = atk.size * (1.0 + atk.size_per_level * (tower.level as f32 - 1.0));
-        let sprite = match atk.image {
-            Some(path) => Sprite { image: tex_cache.entry(path).or_insert_with(|| asset_server.load(path)).clone(), custom_size: Some(size), ..default() },
-            None => Sprite { color: atk.color, custom_size: Some(size), ..default() },
-        };
         let angle = if atk.image.is_some() { dir.y.atan2(dir.x) + atk.rot_offset } else { 0.0 }; // strela leti rovne, natoceni staci nastavit jednou
+        // strela s obrazkem = sprite; bez obrazku = zarici shader (ctverec s glow materialem, zare 3x vetsi nez strela)
+        let mut tf = Transform::from_xyz(t_tf.translation.x, t_tf.translation.y, 6.0).with_rotation(Quat::from_rotation_z(angle));
+        match atk.image {
+            Some(path) => {
+                let sprite = Sprite { image: tex_cache.entry(path).or_insert_with(|| asset_server.load(path)).clone(), custom_size: Some(size), ..default() };
+                commands.entity(b_ent).remove::<(Mesh2d, MeshMaterial2d<crate::fx::GlowMaterial>)>().insert(sprite);
+            }
+            None => {
+                let s = (size.x.max(size.y) * 5.0).max(30.0); // zare je vetsi nez samotna strela
+                tf.scale = Vec3::new(s, s, 1.0);
+                let mat = fx.glow_for(tower.kind, atk.color, &mut glow_mats);
+                commands.entity(b_ent).remove::<Sprite>().insert((Mesh2d(fx.quad.clone()), MeshMaterial2d(mat)));
+            }
+        }
         commands.entity(b_ent).insert((
             Visibility::Visible,
-            sprite,
-            Transform::from_xyz(t_tf.translation.x, t_tf.translation.y, 6.0).with_rotation(Quat::from_rotation_z(angle)),
+            tf,
             Bullet {
                 damage: (tower.damage_min + tower.damage_max) * 0.5 * mods.map_or(1.0, |m| m.dmg_mul),
                 vel: dir * atk.speed,
@@ -156,10 +167,10 @@ fn apply_push_stun(commands: &mut Commands, e: Entity, bullet: &Bullet, rng: &mu
     let (stun_chance, stun_secs) = crate::systems::effects::stun_for(bullet.kind, bullet.level);
     let Some(mut ec) = commands.get_entity(e) else { return; }; // creep mohl byt mezitim despawnuty
     if bullet.push_chance > 0.0 && rng.gen::<f32>() < bullet.push_chance {
-        ec.insert(crate::components::Knockback { remaining: bullet.push_dist * (1.0 - resist.map_or(0.0, |r| r.push)), speed: bullet.push_speed }); // resist 0.5 = odhozeni o pulku mene
+        ec.try_insert(crate::components::Knockback { remaining: bullet.push_dist * (1.0 - resist.map_or(0.0, |r| r.push)), speed: bullet.push_speed }); // resist 0.5 = odhozeni o pulku mene
     }
     if stun_chance > 0.0 && !resist.map_or(false, |r| r.stun_immune) && rng.gen::<f32>() < stun_chance {
-        ec.insert(crate::components::StunDebuff { timer: Timer::from_seconds(stun_secs, TimerMode::Once) });
+        ec.try_insert(crate::components::StunDebuff { timer: Timer::from_seconds(stun_secs, TimerMode::Once) });
     }
 }
 
@@ -177,8 +188,12 @@ pub fn bullet_hit(
     mut creeps: Query<(&mut crate::components::Health, &crate::components::MaxHealth, &Creep, Option<&crate::components::Cursed>, Option<&crate::components::VoodooMark>), With<Creep>>,
     air: Query<(), With<Air>>,
     resists: Query<&crate::components::Resist>,
+    time: Res<Time>,
+    mut waves: ResMut<crate::fx::ShockwavePool>,
+    mut wave_mats: ResMut<Assets<crate::fx::ShockwaveMaterial>>,
 ) {
     use crate::special::*;
+    let now = time.elapsed_secs_wrapped();
     let mut shares: Vec<(Entity, Vec2, f32)> = Vec::new(); // Voodoo: (oznaceny creep, pozice, poskozeni k rozdeleni okoli)
     let mut frame_dmg: HashMap<Entity, (Vec2, f32, Color)> = HashMap::new(); // 1 cislo na creepa za snimek
     let mut near: Vec<(Entity, Vec2)> = Vec::new(); // znovupouzity buffer - zadna alokace na strelu
@@ -193,6 +208,7 @@ pub fn bullet_hit(
         grid.query(b_pos, bullet.hit_radius, &mut near);
         let Some(&(hit_ent, hit_pos)) = near.iter().filter(|(e, _)| bullet.hits_air || !air.contains(*e)).min_by(|a, b| a.1.distance_squared(b_pos).total_cmp(&b.1.distance_squared(b_pos))) else { continue; };
         if bullet.aoe > 0.0 {
+            crate::fx::spawn_shockwave(&mut commands, &mut waves, &mut wave_mats, now, hit_pos, bullet.aoe, attack_def(bullet.kind).color, 0.35); // vybuch
             near.clear();
             grid.query(hit_pos, bullet.aoe, &mut near);
             for &(c_ent, c_pos) in near.iter() {
@@ -220,30 +236,30 @@ pub fn bullet_hit(
         if let Some(mut ec) = commands.get_entity(hit_ent) {
             match bullet.kind {
                 HARPOON => { ec.remove::<Air>(); } // srazen na zem: dal musi bludistem
-                CURSE => { ec.insert(crate::components::Cursed { mul: curse_mul(bullet.level), timer: Timer::from_seconds(CURSE_SECS, TimerMode::Once) }); }
-                VOODOO => { ec.insert(crate::components::VoodooMark { share: voodoo_share(bullet.level), timer: Timer::from_seconds(VOODOO_SECS, TimerMode::Once) }); }
+                CURSE => { ec.try_insert(crate::components::Cursed { mul: curse_mul(bullet.level), timer: Timer::from_seconds(CURSE_SECS, TimerMode::Once) }); }
+                VOODOO => { ec.try_insert(crate::components::VoodooMark { share: voodoo_share(bullet.level), timer: Timer::from_seconds(VOODOO_SECS, TimerMode::Once) }); }
                 ILLUSION => {
                     // nahodny smer (vlevo / vpravo / nahoru / dolu), nahodna vzdalenost podle ranku
                     let dirs = [Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y];
                     let dir = dirs[rng.gen_range(0..4)];
                     let boss = creeps.get(hit_ent).map_or(false, |c| c.2.is_boss);
                     let dist = illusion_dist(bullet.level) * rng.gen_range(0.5..1.0) * if boss { 0.5 } else { 1.0 };
-                    ec.insert(crate::components::Confused { dir, remaining: dist });
+                    ec.try_insert(crate::components::Confused { dir, remaining: dist });
                 }
                 _ => {}
             }
         }
         // get_entity: creep mohl byt mezitim despawnuty
         if bullet.slow > 0.0 {
-            if let Some(mut ec) = commands.get_entity(hit_ent) { ec.insert(crate::components::SlowDebuff { timer: Timer::from_seconds(2.5, TimerMode::Once), factor: 1.0 - bullet.slow.clamp(0.0, bullet.slow_max) * (1.0 - resists.get(hit_ent).map_or(0.0, |r| r.slow)) }); }
+            if let Some(mut ec) = commands.get_entity(hit_ent) { ec.try_insert(crate::components::SlowDebuff { timer: Timer::from_seconds(2.5, TimerMode::Once), factor: 1.0 - bullet.slow.clamp(0.0, bullet.slow_max) * (1.0 - resists.get(hit_ent).map_or(0.0, |r| r.slow)) }); }
         }
         if bullet.dot_dps > 0.0 {
             if let Some(mut ec) = commands.get_entity(hit_ent) {
                 // poison veze davaji jed (zelena cisla), ostatni burn
                 if bullet.kind == TOWER_POISON {
-                    ec.insert(crate::components::PoisonDebuff { timer: Timer::from_seconds(bullet.dot_dur, TimerMode::Once), tick: Timer::from_seconds(0.5, TimerMode::Repeating), dps: bullet.dot_dps, level: bullet.level });
+                    ec.try_insert(crate::components::PoisonDebuff { timer: Timer::from_seconds(bullet.dot_dur, TimerMode::Once), tick: Timer::from_seconds(0.5, TimerMode::Repeating), dps: bullet.dot_dps, level: bullet.level });
                 } else {
-                    ec.insert(crate::components::BurnDebuff { timer: Timer::from_seconds(bullet.dot_dur, TimerMode::Once), tick: Timer::from_seconds(0.5, TimerMode::Repeating), dps: bullet.dot_dps, level: bullet.level });
+                    ec.try_insert(crate::components::BurnDebuff { timer: Timer::from_seconds(bullet.dot_dur, TimerMode::Once), tick: Timer::from_seconds(0.5, TimerMode::Repeating), dps: bullet.dot_dps, level: bullet.level });
                 }
             }
         }

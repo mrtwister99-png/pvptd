@@ -60,6 +60,8 @@ Tohle je nejvíc práce, ale připraví to půdu i pro online: online soupeř je
 
 `AUTOPLAY=1 cargo run` přeskočí menu a rovnou spustí zápas.
 `HIDDEN_WINDOW=1` otevře okno mimo obrazovku (pro automatické testy).
+`AUTOPLAY_BOTH=1` = bot hraje i za tebe (bot proti botovi).
+`SCREENSHOT_AT="15,20" SCREENSHOT_DIR=slozka` uloží screenshoty v daných sekundách zápasu (`SCREENSHOT_VIEW=bot` = kamera na lajně bota).
 
 ## Další etapa (po botovi)
 Karty a truhly, výběr balíčku, úrovně karet, uložení progresu v telefonu → online 1v1, účty, žebříček → kosmetika, diamanty, obchod.
