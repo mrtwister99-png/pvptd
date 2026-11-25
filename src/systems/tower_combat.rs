@@ -2,7 +2,7 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 use rand::Rng;
-use crate::components::{Tower, Creep, Bullet, Air};
+use crate::components::{Tower, Creep, Bullet, Air, Side};
 use crate::constants::TOWER_POISON;
 
 // =====================================================================
@@ -23,10 +23,8 @@ struct AttackDef {
     push_speed: f32,      // rychlost odhozeni creepa dozadu (jednotek/s)
 }
 
-// Air / Ground: ktere veze umi strilet do vzduchu (podle MD: Cannon jen zem, Fire L3 Meteor Tower jen zem)
-fn hits_air(kind: u8, level: u32) -> bool {
-    use crate::special::*;
-    match kind { 2 => false, 4 => level != 3, ILLUSION => false, _ => true }
+fn hits_air(_kind: u8, _level: u32) -> bool {
+    true
 }
 
 // odolnost creepa vuci druhu veze (tabulka Resist ma jen puvodnich 8 druhu; nove veze = bez odolnosti)
@@ -38,19 +36,19 @@ fn resist_mul(r: Option<&crate::components::Resist>, kind: u8) -> f32 {
 fn attack_def(kind: u8) -> AttackDef {
     use std::f32::consts::FRAC_PI_2;
     match kind {
-        // Arrow: sip.png (miri nahoru -> otocit o -90 stupnu)
+        // Bramboromet
         1 => AttackDef { speed: 600.0, size: Vec2::new(14.0, 28.0), size_per_level: 0.10, color: Color::srgb(1.0, 1.0, 0.8), image: Some("bullets/sip.png"), rot_offset: -FRAC_PI_2, hit_radius: 24.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
-        // Cannon: cannon.png (kulicka), pomala
+        // Nerfka
         2 => AttackDef { speed: 380.0, size: Vec2::new(18.0, 18.0), size_per_level: 0.15, color: Color::srgb(1.0, 0.6, 0.1), image: Some("bullets/cannon.png"), rot_offset: 0.0, hit_radius: 30.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
-        // Frost
+        // Babicka
         3 => AttackDef { speed: 450.0, size: Vec2::new(9.0, 9.0), size_per_level: 0.10, color: Color::srgb(0.2, 0.6, 1.0), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
-        // Fire
+        // Router
         4 => AttackDef { speed: 420.0, size: Vec2::new(9.0, 9.0), size_per_level: 0.12, color: Color::srgb(1.0, 0.3, 0.1), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
-        // Poison: zpomaluje strelou
+        // Kaktus
         5 => AttackDef { speed: 400.0, size: Vec2::new(8.0, 8.0), size_per_level: 0.10, color: Color::srgb(0.3, 0.9, 0.3), image: None, rot_offset: 0.0, hit_radius: 24.0, slow: true, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
-        // Sniper: nejrychlejsi
+        // Toustovac
         6 => AttackDef { speed: 900.0, size: Vec2::new(8.0, 8.0), size_per_level: 0.10, color: Color::srgb(0.3, 0.4, 1.0), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
-        // Shock Turret: velmi rychla strela, chain skace az 150 u, kazdy skok o 25 % mene, odhozeni 500 u/s
+        // Muchomurka
         7 => AttackDef { speed: 800.0, size: Vec2::new(10.0, 10.0), size_per_level: 0.10, color: Color::srgb(0.95, 0.9, 0.3), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
         8 => AttackDef { speed: 700.0, size: Vec2::new(6.0, 22.0), size_per_level: 0.10, color: Color::srgb(0.2, 0.9, 0.9), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
         10 => AttackDef { speed: 500.0, size: Vec2::new(14.0, 14.0), size_per_level: 0.10, color: Color::srgb(0.7, 0.1, 0.1), image: None, rot_offset: 0.0, hit_radius: 26.0, slow: false, chain_radius: 150.0, chain_falloff: 0.75, push_speed: 500.0 },
@@ -65,6 +63,7 @@ fn attack_def(kind: u8) -> AttackDef {
 pub fn tower_shoot(
     mut commands: Commands,
     time: Res<Time>,
+    wave: Res<crate::resources::WaveCount>,
     asset_server: Res<AssetServer>,
     mut bullet_pool: ResMut<crate::resources::BulletPool>,
     mut tex_cache: Local<HashMap<&'static str, Handle<Image>>>, // textury strel nacist jen jednou
@@ -79,7 +78,6 @@ pub fn tower_shoot(
         if tower.cooldown > 0.0 { continue; }
         if mods.map_or(false, |m| m.stun_left > 0.0) { continue; } // omracena vez (stomp Pit Lorda) nestrili
         if !crate::special::shoots(tower.kind) { continue; } // pasivni veze (Mint, Bell, Geyser...) maji vlastni system
-        let only_air = tower.kind == crate::special::HARPOON; // Harpoon strili jen na letajici
         let t_pos = t_tf.translation.truncate();
         let mut target: Option<Vec2> = None;
         let mut best_dist = f32::MAX;
@@ -89,7 +87,6 @@ pub fn tower_shoot(
         let mut in_range = 0u32;
         for (c_tf, is_air) in creeps.iter() {
             if is_air && !can_air { continue; } // zemni vez nema na letajici cil
-            if only_air && !is_air { continue; }
             let d = t_pos.distance(c_tf.translation.truncate());
             if d < range {
                 in_range += 1;
@@ -106,6 +103,10 @@ pub fn tower_shoot(
         let atk = attack_def(tower.kind);
         let size = atk.size * (1.0 + atk.size_per_level * (tower.level as f32 - 1.0));
         let angle = if atk.image.is_some() { dir.y.atan2(dir.x) + atk.rot_offset } else { 0.0 }; // strela leti rovne, natoceni staci nastavit jednou
+        let mut shot_damage = (tower.damage_min + tower.damage_max) * 0.5 * mods.map_or(1.0, |m| m.dmg_mul);
+        if tower.kind == crate::special::KATAPULT && tower.level >= 7 && rng.gen::<f32>() < 0.20 {
+            shot_damage *= 2.0;
+        }
         // strela s obrazkem = sprite; bez obrazku = zarici shader (ctverec s glow materialem, zare 3x vetsi nez strela)
         let mut tf = Transform::from_xyz(t_tf.translation.x, t_tf.translation.y, 6.0).with_rotation(Quat::from_rotation_z(angle));
         match atk.image {
@@ -124,13 +125,18 @@ pub fn tower_shoot(
             Visibility::Visible,
             tf,
             Bullet {
-                damage: (tower.damage_min + tower.damage_max) * 0.5 * mods.map_or(1.0, |m| m.dmg_mul),
+                damage: shot_damage,
+                shot_count: tower.hit_count + 1,
+                owner_side: Some(tower.side),
+                owner_row: tower.row as u8,
+                owner_col: tower.col as u8,
+                wave: wave.0,
                 vel: dir * atk.speed,
                 life: Timer::from_seconds(range / atk.speed + 0.2, TimerMode::Once),
                 aoe: tower.splash,
                 kind: tower.kind,
                 level: tower.level,
-                slow: if atk.slow { tower.slow_per_hit } else { 0.0 },
+                slow: if atk.slow || tower.slow_per_hit > 0.0 { tower.slow_per_hit } else { 0.0 },
                 slow_max: tower.slow_max,
                 push_chance: tower.push_chance,
                 push_dist: tower.push_dist,
@@ -178,14 +184,64 @@ fn add_frame_dmg(map: &mut HashMap<Entity, (Vec2, f32, Color)>, e: Entity, pos: 
     map.entry(e).or_insert((pos, 0.0, col)).1 += dmg;
 }
 
+fn dj_drop_ready(timer: &mut f32, delta_secs: f32) -> bool {
+    if *timer > delta_secs {
+        *timer -= delta_secs;
+        false
+    } else {
+        *timer = 10.0;
+        true
+    }
+}
+
+pub fn dj_drop_system(
+    mut commands: Commands,
+    grid: Res<crate::resources::CreepGrid>,
+    time: Res<Time>,
+    paused: Res<crate::resources::WavePaused>,
+    mut towers: Query<&mut Tower>,
+    mut creeps: Query<(&mut crate::components::Health, &Transform), With<Creep>>,
+    mut pool: ResMut<crate::resources::DamageNumberPool>,
+) {
+    if paused.0 { return; }
+    let mut near: Vec<(Entity, Vec2)> = Vec::new();
+    let mut frame_dmg: HashMap<Entity, (Vec2, f32, Color)> = HashMap::new();
+    for mut tower in towers.iter_mut() {
+        if tower.kind != crate::special::DJ || !dj_drop_ready(&mut tower.dj_drop_timer, time.delta_secs()) { continue; }
+        near.clear();
+        grid.query(
+            Vec2::new(tower.side.lane_x(), crate::constants::LANE_Y),
+            crate::constants::LANE_H + crate::constants::SPAWN_ABOVE,
+            &mut near,
+        );
+        for &(entity, pos) in near.iter() {
+            if (pos.x - tower.side.lane_x()).abs() > crate::constants::LANE_W * 0.5 { continue; }
+            if let Ok((mut hp, _)) = creeps.get_mut(entity) {
+                hp.0 -= 100.0;
+                add_frame_dmg(&mut frame_dmg, entity, pos, 100.0, Color::srgb(0.8, 0.3, 0.9));
+                if let Some(mut ec) = commands.get_entity(entity) {
+                    ec.try_insert(crate::components::Knockback { remaining: 3.0 * crate::constants::CELL, speed: 500.0 });
+                }
+            }
+        }
+    }
+    for (_, (pos, dmg, col)) in frame_dmg {
+        crate::systems::debuff::spawn_damage_number(&mut commands, &mut pool, dmg, col, Vec2::new(pos.x, pos.y + 18.0), 25.0, 0.7);
+    }
+}
+
 pub fn bullet_hit(
     mut commands: Commands,
     mut pool: ResMut<crate::resources::DamageNumberPool>,
     mut bullet_pool: ResMut<crate::resources::BulletPool>,
     mut bolt_pool: ResMut<crate::systems::effects::BoltPool>,
     grid: Res<crate::resources::CreepGrid>,
-    mut bullets: Query<(Entity, &Transform, &mut Bullet, &mut Visibility), Without<Creep>>,
-    mut creeps: Query<(&mut crate::components::Health, &crate::components::MaxHealth, &Creep, Option<&crate::components::Cursed>, Option<&crate::components::VoodooMark>), With<Creep>>,
+    mut bullets: Query<(Entity, &Transform, &mut Bullet, &mut Visibility), (Without<Creep>, Without<Tower>)>,
+    mut creeps: Query<(&mut crate::components::Health, &mut crate::components::MaxHealth, &mut Creep, Option<&crate::components::Cursed>), With<Creep>>,
+    mut creep_positions: Query<&mut Transform, (With<Creep>, Without<Tower>)>,
+    mut creep_sides: Query<&mut Side, (With<Creep>, Without<Tower>)>,
+    mut poisons: Query<&mut crate::components::PoisonDebuff, With<Creep>>,
+    mut tower_abilities: Query<&mut Tower, Without<Creep>>,
     air: Query<(), With<Air>>,
     resists: Query<&crate::components::Resist>,
     time: Res<Time>,
@@ -194,7 +250,6 @@ pub fn bullet_hit(
 ) {
     use crate::special::*;
     let now = time.elapsed_secs_wrapped();
-    let mut shares: Vec<(Entity, Vec2, f32)> = Vec::new(); // Voodoo: (oznaceny creep, pozice, poskozeni k rozdeleni okoli)
     let mut frame_dmg: HashMap<Entity, (Vec2, f32, Color)> = HashMap::new(); // 1 cislo na creepa za snimek
     let mut near: Vec<(Entity, Vec2)> = Vec::new(); // znovupouzity buffer - zadna alokace na strelu
     let mut rng = rand::thread_rng();
@@ -213,40 +268,179 @@ pub fn bullet_hit(
             grid.query(hit_pos, bullet.aoe, &mut near);
             for &(c_ent, c_pos) in near.iter() {
                 if !bullet.hits_air && air.contains(c_ent) { continue; } // splash zemni veze letajici nezasahne
-                if let Ok((mut hp, _, _, cursed, voodoo)) = creeps.get_mut(c_ent) {
+                if let Ok((mut hp, _, _, cursed)) = creeps.get_mut(c_ent) {
                     let dmg = bullet.damage * resist_mul(resists.get(c_ent).ok(), bullet.kind) * (1.0 + cursed.map_or(0.0, |c| c.mul)); // odolnost + kletba
                     hp.0 -= dmg;
                     add_frame_dmg(&mut frame_dmg, c_ent, c_pos, dmg, Color::srgb(1.0, 0.4, 0.1));
-                    if let Some(v) = voodoo { shares.push((c_ent, c_pos, dmg * v.share)); }
                 }
             }
-        } else if let Ok((mut hp, max_hp, creep, cursed, voodoo)) = creeps.get_mut(hit_ent) {
+        } else if let Ok((mut hp, mut max_hp, mut creep, cursed)) = creeps.get_mut(hit_ent) {
+            let (reduction_flag, reduction) = match bullet.kind {
+                CHUCK_NORRIS if bullet.level >= 3 && creep.is_boss => (1, 0.20),
+                TCHYNE => (2, 0.20),
+                KAREN if bullet.level >= 3 && creep.is_boss => (4, 0.10),
+                _ => (0, 0.0),
+            };
+            if reduction_flag != 0 && creep.max_hp_reductions & reduction_flag == 0 {
+                max_hp.0 *= 1.0 - reduction;
+                hp.0 = hp.0.min(max_hp.0);
+                creep.max_hp_reductions |= reduction_flag;
+            }
             let mut dmg = bullet.damage * resist_mul(resists.get(hit_ent).ok(), bullet.kind) * (1.0 + cursed.map_or(0.0, |c| c.mul)); // odolnost + kletba
             let mut col = Color::srgb(1.0, 0.4, 0.1);
-            if bullet.kind == EXECUTIONER && hp.0 > 0.0 {
-                // % chybejiciho HP navic; pod hranici poprava (bossove nikdy)
-                dmg += (max_hp.0 - hp.0).max(0.0) * executioner_missing_pct(bullet.level);
-                if !creep.is_boss && hp.0 / max_hp.0.max(1.0) < executioner_threshold(bullet.level) { dmg = dmg.max(hp.0); col = Color::srgb(0.9, 0.1, 0.1); }
+            if bullet.kind == CHUCK_NORRIS {
+            dmg = bullet.damage;
+            if hp.0 / max_hp.0.max(1.0) < 0.30 { dmg = hp.0; }
+            col = Color::srgb(0.95, 0.85, 0.5);
+            } else if bullet.kind == SNIPER {
+            let (chance, multiplier) = if bullet.level >= 7 { (0.40, 4.0) } else { (0.20, 3.0) };
+            if rng.gen::<f32>() < chance { dmg *= multiplier; }
+            if !creep.is_boss && hp.0 / max_hp.0.max(1.0) < 0.20 { dmg = hp.0; }
+            } else if bullet.kind == BABICKA && bullet.shot_count % 6 == 0 {
+            dmg *= 2.0;
+            col = Color::srgb(0.95, 0.75, 0.25);
+            } else if bullet.kind == TCHYNE && rng.gen::<f32>() < 0.20 {
+            dmg *= 2.0;
+            col = Color::srgb(0.9, 0.3, 0.65);
+            } else if bullet.kind == BANHAMMER && bullet.shot_count % 5 == 0 {
+            dmg += hp.0 * if creep.is_boss { 0.02 } else { 0.12 };
+            col = Color::srgb(0.85, 0.8, 0.4);
             }
             hp.0 -= dmg;
             add_frame_dmg(&mut frame_dmg, hit_ent, hit_pos, dmg, col);
-            if let Some(v) = voodoo { shares.push((hit_ent, hit_pos, dmg * v.share)); }
         }
         // znacky specialnich vezi na zasazeneho creepa
         if let Some(mut ec) = commands.get_entity(hit_ent) {
             match bullet.kind {
-                HARPOON => { ec.remove::<Air>(); } // srazen na zem: dal musi bludistem
-                CURSE => { ec.try_insert(crate::components::Cursed { mul: curse_mul(bullet.level), timer: Timer::from_seconds(CURSE_SECS, TimerMode::Once) }); }
-                VOODOO => { ec.try_insert(crate::components::VoodooMark { share: voodoo_share(bullet.level), timer: Timer::from_seconds(VOODOO_SECS, TimerMode::Once) }); }
-                ILLUSION => {
-                    // nahodny smer (vlevo / vpravo / nahoru / dolu), nahodna vzdalenost podle ranku
+                KAKTUS => { ec.try_insert(crate::components::Cursed { mul: 0.10, timer: Timer::from_seconds(2.0, TimerMode::Once) }); }
+                DANOVY_URAD => { ec.try_insert(crate::components::Cursed { mul: 0.08, timer: Timer::from_seconds(2.0, TimerMode::Once) }); }
+                BABICKA if bullet.shot_count % 6 == 0 => {
+                    ec.try_insert(crate::components::StunDebuff { timer: Timer::from_seconds(1.0, TimerMode::Once) });
+                }
+                ROUTER if bullet.level >= 7 => {
+                    ec.try_insert(crate::components::StunDebuff { timer: Timer::from_seconds(1.5, TimerMode::Once) });
+                }
+                PEPA => {
                     let dirs = [Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y];
-                    let dir = dirs[rng.gen_range(0..4)];
-                    let boss = creeps.get(hit_ent).map_or(false, |c| c.2.is_boss);
-                    let dist = illusion_dist(bullet.level) * rng.gen_range(0.5..1.0) * if boss { 0.5 } else { 1.0 };
-                    ec.try_insert(crate::components::Confused { dir, remaining: dist });
+                    if rng.gen::<f32>() < 0.20 {
+                        ec.try_insert(crate::components::Confused { dir: dirs[rng.gen_range(0..4)], remaining: 2.0 * crate::constants::CELL });
+                    }
+                }
+                HAXOR if rng.gen::<f32>() < 0.15 => {
+                    if let Some(owner_side) = bullet.owner_side {
+                        let destination = owner_side.other();
+                        if let Ok(mut target_side) = creep_sides.get_mut(hit_ent) {
+                            let previous = *target_side;
+                            if previous != destination {
+                                if let Ok(mut tf) = creep_positions.get_mut(hit_ent) {
+                                    tf.translation.x += destination.lane_x() - previous.lane_x();
+                                }
+                                *target_side = destination;
+                            }
+                        }
+                    }
+                }
+                TROLLFACE if rng.gen::<f32>() < 0.25 => {
+                    ec.try_insert(crate::components::Knockback { remaining: 2.0 * crate::constants::CELL, speed: 500.0 });
+                }
+                MRAZAK if bullet.level >= 7 && rng.gen::<f32>() < 0.25 => {
+                    ec.try_insert(crate::components::StunDebuff { timer: Timer::from_seconds(1.2, TimerMode::Once) });
+                }
+                TCHYNE if bullet.level >= 3 && creeps.get(hit_ent).map_or(false, |creep| creep.2.is_boss) => {
+                    ec.try_insert(crate::components::StunDebuff { timer: Timer::from_seconds(3.0, TimerMode::Once) });
+                }
+                KAREN if creeps.get(hit_ent).map_or(false, |creep| creep.2.is_boss) => {
+                    ec.try_insert(crate::components::SlowDebuff { timer: Timer::from_seconds(2.0, TimerMode::Once), factor: 0.85 });
+                    ec.try_insert(crate::components::Cursed { mul: 0.0, timer: Timer::from_seconds(2.0, TimerMode::Once) });
+                }
+                BLACK_HOLE => {
+                    if let Some(side) = bullet.owner_side {
+                        let dx = side.lane_x() - hit_pos.x;
+                        if dx.abs() > 1.0 {
+                            ec.try_insert(crate::components::Confused { dir: Vec2::new(dx.signum(), 0.0), remaining: 2.0 * crate::constants::CELL });
+                        }
+                        if bullet.level >= 3 && rng.gen::<f32>() < 0.10 {
+                            let destination = side.other();
+                            if let Ok(mut target_side) = creep_sides.get_mut(hit_ent) {
+                                if let Ok(mut tf) = creep_positions.get_mut(hit_ent) {
+                                    tf.translation.x += destination.lane_x() - target_side.lane_x();
+                                    tf.translation.y = crate::constants::LANE_Y + crate::constants::LANE_H * 0.5 + crate::constants::SPAWN_ABOVE;
+                                }
+                                *target_side = destination;
+                            }
+                            if let Ok((mut hp, mut max_hp, _, _)) = creeps.get_mut(hit_ent) {
+                                hp.0 *= 2.0;
+                                max_hp.0 *= 2.0;
+                            }
+                        }
+                    }
                 }
                 _ => {}
+            }
+            if bullet.kind == TOUSTOVAC && bullet.level >= 7 {
+                ec.try_insert(crate::components::DeathExplosion { damage: bullet.damage, radius: 1.5 * crate::constants::CELL });
+            }
+        }
+        if matches!(bullet.kind, SHREK | HAXOR | TROLLFACE) && bullet.level >= 3 {
+            let used = bullet.owner_side.map_or(false, |side| {
+                tower_abilities.iter_mut().find(|tower| {
+                    tower.kind == bullet.kind
+                        && tower.side == side
+                        && tower.row == bullet.owner_row as usize
+                        && tower.col == bullet.owner_col as usize
+                }).map_or(false, |mut tower| {
+                    if tower.last_ability_wave == bullet.wave { return false; }
+                    tower.last_ability_wave = bullet.wave;
+                    true
+                })
+            });
+            if used {
+                if bullet.kind == SHREK {
+                    let start_y = crate::constants::LANE_Y + crate::constants::LANE_H * 0.5 + crate::constants::SPAWN_ABOVE;
+                    if let Some(mut ec) = commands.get_entity(hit_ent) {
+                        ec.try_insert(crate::components::Knockback { remaining: (start_y - hit_pos.y).max(0.0), speed: 500.0 });
+                    }
+                } else if let Some(side) = bullet.owner_side {
+                    near.clear();
+                    grid.query(
+                        Vec2::new(side.lane_x(), crate::constants::LANE_Y + crate::constants::LANE_H * 0.5),
+                        crate::constants::LANE_H + crate::constants::SPAWN_ABOVE,
+                        &mut near,
+                    );
+                    if bullet.kind == HAXOR {
+                        for &(entity, pos) in near.iter() {
+                            if (pos.x - side.lane_x()).abs() <= crate::constants::LANE_W * 0.5 {
+                                if let Some(mut ec) = commands.get_entity(entity) {
+                                    ec.try_insert(crate::components::StunDebuff { timer: Timer::from_seconds(2.0, TimerMode::Once) });
+                                }
+                            }
+                        }
+                    } else {
+                        let mut strongest: Option<(Entity, Vec2, f32)> = None;
+                        let mut weakest: Option<(Entity, Vec2, f32)> = None;
+                        for &(entity, pos) in near.iter() {
+                            if (pos.x - side.lane_x()).abs() > crate::constants::LANE_W * 0.5 { continue; }
+                            if let Ok((hp, _, _, _)) = creeps.get_mut(entity) {
+                                if strongest.map_or(true, |(_, _, value)| hp.0 > value) {
+                                    strongest = Some((entity, pos, hp.0));
+                                }
+                                if weakest.map_or(true, |(_, _, value)| hp.0 < value) {
+                                    weakest = Some((entity, pos, hp.0));
+                                }
+                            }
+                        }
+                        if let (Some((strong_entity, _, _)), Some((weak_entity, _, _))) = (strongest, weakest) {
+                            if strong_entity != weak_entity {
+                                let strong_pos = creep_positions.get_mut(strong_entity).ok().map(|tf| tf.translation);
+                                let weak_pos = creep_positions.get_mut(weak_entity).ok().map(|tf| tf.translation);
+                                if let (Some(strong_pos), Some(weak_pos)) = (strong_pos, weak_pos) {
+                                    if let Ok(mut tf) = creep_positions.get_mut(strong_entity) { tf.translation = weak_pos; }
+                                    if let Ok(mut tf) = creep_positions.get_mut(weak_entity) { tf.translation = strong_pos; }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         // get_entity: creep mohl byt mezitim despawnuty
@@ -255,9 +449,18 @@ pub fn bullet_hit(
         }
         if bullet.dot_dps > 0.0 {
             if let Some(mut ec) = commands.get_entity(hit_ent) {
-                // poison veze davaji jed (zelena cisla), ostatni burn
                 if bullet.kind == TOWER_POISON {
-                    ec.try_insert(crate::components::PoisonDebuff { timer: Timer::from_seconds(bullet.dot_dur, TimerMode::Once), tick: Timer::from_seconds(0.5, TimerMode::Repeating), dps: bullet.dot_dps, level: bullet.level });
+                    if let Ok(mut poison) = poisons.get_mut(hit_ent) {
+                        poison.stacks = (poison.stacks + 1).min(5);
+                        poison.dps = bullet.dot_dps * poison.stacks as f32;
+                        poison.timer.reset();
+                        if poison.stacks == 5 {
+                            let dirs = [Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y];
+                            ec.try_insert(crate::components::Confused { dir: dirs[rng.gen_range(0..4)], remaining: 2.0 * crate::constants::CELL });
+                        }
+                    } else {
+                        ec.try_insert(crate::components::PoisonDebuff { timer: Timer::from_seconds(bullet.dot_dur, TimerMode::Once), tick: Timer::from_seconds(0.5, TimerMode::Repeating), dps: bullet.dot_dps, level: bullet.level, stacks: 1 });
+                    }
                 } else {
                     ec.try_insert(crate::components::BurnDebuff { timer: Timer::from_seconds(bullet.dot_dur, TimerMode::Once), tick: Timer::from_seconds(0.5, TimerMode::Repeating), dps: bullet.dot_dps, level: bullet.level });
                 }
@@ -276,7 +479,7 @@ pub fn bullet_hit(
                 let next = near.iter().filter(|(e, _)| !chained.contains(e) && (bullet.hits_air || !air.contains(*e))).min_by(|a, b| a.1.distance_squared(cur_pos).total_cmp(&b.1.distance_squared(cur_pos)));
                 let Some(&(c_ent, c_pos)) = next else { break; };
                 dmg *= bullet.chain_falloff;
-                if let Ok((mut hp, _, _, _, _)) = creeps.get_mut(c_ent) {
+                if let Ok((mut hp, _, _, _)) = creeps.get_mut(c_ent) {
                     let shown = dmg * resist_mul(resists.get(c_ent).ok(), bullet.kind); // odolnost podle druhu veze (dmg se dal snizuje bez ni)
                     hp.0 -= shown;
                     add_frame_dmg(&mut frame_dmg, c_ent, c_pos, shown, Color::srgb(0.6, 0.9, 1.0));
@@ -288,18 +491,6 @@ pub fn bullet_hit(
             }
         }
         bullet.active = false; *b_vis = Visibility::Hidden; bullet_pool.free.push(b_ent); // zpet do poolu
-    }
-    // Voodoo: poskozeni oznacenych creepu se prenese na creepy kolem (dal uz se neprenasi)
-    for (src, pos, dmg) in shares {
-        near.clear();
-        grid.query(pos, VOODOO_RADIUS, &mut near);
-        for &(c_ent, c_pos) in near.iter() {
-            if c_ent == src { continue; }
-            if let Ok((mut hp, _, _, _, _)) = creeps.get_mut(c_ent) {
-                hp.0 -= dmg;
-                add_frame_dmg(&mut frame_dmg, c_ent, c_pos, dmg, Color::srgb(0.8, 0.4, 0.8));
-            }
-        }
     }
     // 1 cislo na creepa za snimek (soucet vsech zasahu)
     for (_, (pos, dmg, col)) in frame_dmg {
@@ -325,5 +516,18 @@ pub fn setup_bullet_pool(mut commands: Commands, mut pool: ResMut<crate::resourc
             Bullet::default(),
         )).id();
         pool.free.push(e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dj_drop_ready;
+
+    #[test]
+    fn dj_drop_triggers_on_elapsed_ten_second_intervals() {
+        let mut timer = 10.0;
+        assert!(!dj_drop_ready(&mut timer, 9.0));
+        assert!(dj_drop_ready(&mut timer, 1.0));
+        assert!(!dj_drop_ready(&mut timer, 1.0));
     }
 }

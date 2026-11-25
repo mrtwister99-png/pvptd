@@ -9,7 +9,7 @@ pub fn update_debuffs(
     time: Res<Time>,
     mut q_slow: Query<(Entity, &mut SlowDebuff)>,
     mut q_stun: Query<(Entity, &mut StunDebuff)>,
-    mut q_marks: ParamSet<(Query<(Entity, &mut crate::components::Cursed)>, Query<(Entity, &mut crate::components::VoodooMark)>)>,
+    mut q_marks: Query<(Entity, &mut crate::components::Cursed)>,
     mut debuffs: ParamSet<(
         Query<(Entity, &Transform, &mut BurnDebuff, &mut Health, Option<&crate::components::Resist>)>,
         Query<(Entity, &Transform, &mut PoisonDebuff, &mut Health, Option<&crate::components::Resist>)>,
@@ -27,18 +27,14 @@ pub fn update_debuffs(
             if let Some(mut ec) = commands.get_entity(e) { ec.remove::<StunDebuff>(); }
         }
     }
-    // znacky Curse a Voodoo po case zmizi
-    for (e, mut c) in q_marks.p0().iter_mut() {
+    for (e, mut c) in q_marks.iter_mut() {
         if c.timer.tick(time.delta()).finished() { if let Some(mut ec) = commands.get_entity(e) { ec.remove::<crate::components::Cursed>(); } }
-    }
-    for (e, mut v) in q_marks.p1().iter_mut() {
-        if v.timer.tick(time.delta()).finished() { if let Some(mut ec) = commands.get_entity(e) { ec.remove::<crate::components::VoodooMark>(); } }
     }
     for (e, tf, mut burn, mut hp, resist) in debuffs.p0().iter_mut() {
         burn.timer.tick(time.delta());
         burn.tick.tick(time.delta());
         if burn.tick.just_finished() {
-            let dmg = burn.dps * 0.5 * resist.map_or(1.0, |r| r.dmg_mul[4]); // 4 = Fire
+            let dmg = burn.dps * 0.5 * resist.map_or(1.0, |r| r.dmg_mul[6]);
             hp.0 -= dmg;
             let jitter = Vec2::new(rand::thread_rng().gen_range(-6.0..6.0), rand::thread_rng().gen_range(0.0..8.0));
             spawn_damage_number(&mut commands, &mut pool, dmg, Color::srgb(1.0, 0.4, 0.1), Vec2::new(tf.translation.x + jitter.x, tf.translation.y + jitter.y + 18.0), 25.0, 0.7);
@@ -51,7 +47,7 @@ pub fn update_debuffs(
         poison.timer.tick(time.delta());
         poison.tick.tick(time.delta());
         if poison.tick.just_finished() {
-            let dmg = poison.dps * 0.5 * resist.map_or(1.0, |r| r.dmg_mul[5]); // 5 = Poison
+            let dmg = poison.dps * 0.5 * resist.map_or(1.0, |r| r.dmg_mul[7]);
             hp.0 -= dmg;
             let jitter = Vec2::new(rand::thread_rng().gen_range(-6.0..6.0), rand::thread_rng().gen_range(0.0..8.0));
             spawn_damage_number(&mut commands, &mut pool, dmg, Color::srgb(0.4, 0.9, 0.3), Vec2::new(tf.translation.x + jitter.x, tf.translation.y + jitter.y + 18.0), 25.0, 0.7);

@@ -8,7 +8,26 @@ pub enum AppState {
     Menu,
     Playing,
     DeckSelect, // vyber balicku 5 vezi
+    Restarting,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PauseAction { Restart, Menu, Exit }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PauseOutcome { Restart, Menu, Exit }
+
+pub fn resolve_pause_confirmation(action: PauseAction, confirmed: bool) -> Option<PauseOutcome> {
+    if !confirmed { return None; }
+    Some(match action {
+        PauseAction::Restart => PauseOutcome::Restart,
+        PauseAction::Menu => PauseOutcome::Menu,
+        PauseAction::Exit => PauseOutcome::Exit,
+    })
+}
+
+#[derive(Resource, Default)]
+pub struct PendingPauseAction(pub Option<PauseAction>);
 
 #[derive(Component)]
 pub struct MenuRoot;
@@ -76,5 +95,34 @@ pub fn menu_button_system(
             MenuAction::Deck => next.set(AppState::DeckSelect),
             _ => println!("Menu: tlacitko zatim bez funkce"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn confirmed_pause_actions_return_the_requested_outcome() {
+        assert_eq!(
+            resolve_pause_confirmation(PauseAction::Restart, true),
+            Some(PauseOutcome::Restart)
+        );
+        assert_eq!(
+            resolve_pause_confirmation(PauseAction::Menu, true),
+            Some(PauseOutcome::Menu)
+        );
+        assert_eq!(
+            resolve_pause_confirmation(PauseAction::Exit, true),
+            Some(PauseOutcome::Exit)
+        );
+    }
+
+    #[test]
+    fn declined_pause_action_does_not_change_game_flow() {
+        assert_eq!(
+            resolve_pause_confirmation(PauseAction::Restart, false),
+            None
+        );
     }
 }

@@ -1,12 +1,13 @@
 
 use bevy::prelude::*;
 use rand::Rng;
+use std::collections::HashMap;
 use crate::components::{Creep, CreepMainCircle, Health, MaxHealth, CreepHpText, CreepStatusText, SlowOutline, SlowDebuff, BurnDebuff, HpBarBg, HpBarFill, HpBarText, SentUnit, SendPanelItem, IncomeText, Knockback, Air, Enrage, EnrageFlash, Resist, Guardian, Heal, Tower, Aura, AuraBuff, ShootBack, TowerSlow, FrostOverlay, Shimmer, GuardianMsg, CheatButton, TowerAura, TowerMods};
-use crate::resources::{CreepAssets, RoundState, RoundPhase, MatchOver, WavePaused, WaveCount, Diamonds, Grid, PathMap, Sides, SelectedCell};
+use crate::resources::{CreepAssets, RoundState, RoundPhase, MatchOver, WavePaused, WaveCount, Grid, PathMap, Sides, SelectedCell};
 use crate::components::Side;
 use crate::constants::{LANE_Y, LANE_W, LANE_H, CREEP_BASE_SPEED, CREEP_GROWTH_PER_WAVE, CREEP_GROWTH_MAX_SCALE, FROST_OUTLINE_MAX_EXTRA, COLS, ROWS, LEAK_GOLD_RATIO, CELL, SPAWN_ABOVE, TOTAL_LIVES, ROUND_PAUSE_SECS, ROUND_MAX_SECS, BOSS_EVERY, ELITE_HP_MUL, BOSS_HP_MUL, LATE_ROUND, LATE_ROUND_HP_GROWTH, LEAK_NORMAL, LEAK_ELITE, LEAK_BOSS, KILL_GOLD_NORMAL, KILL_GOLD_ELITE, KILL_GOLD_BOSS, KILL_GOLD_MEGA};
 use crate::wave_def::{get_wave_def, get_unit_def, income_multiplier, is_air, enrage_for, resist_for, heal_for, aura_for, shoot_back_for, shimmer_for, tower_aura_for};
-use crate::utils::{world_to_grid, grid_to_world, compute_path};
+use crate::utils::{world_to_grid, grid_to_world, compute_path, path_to_adjacent_blocked_cell};
 
 // === KOLA ===
 // Pauza (prvni je delsi = stavba) -> kolo: na obe lajny prijde vlna (normalni creepi + 1 vetsi, kazde 5. kolo i boss).
@@ -41,16 +42,24 @@ pub fn round_system(
                 round.phase = RoundPhase::Pause;
                 round.timer = Timer::from_seconds(ROUND_PAUSE_SECS, TimerMode::Once);
                 round.guardian_sent = false;
-                // MINT: na konci kola vyplati gold sve strane
-                for t in towers.iter().filter(|t| t.kind == crate::special::MINT) {
-                    sides.get_mut(t.side).gold += crate::special::mint_gold(t.level);
+                for t in towers.iter() {
+                    if t.kind == crate::special::KASICKA {
+                        let bonus = if wave.0 % 5 == 0 { 104 } else { 4 };
+                        sides.get_mut(t.side).gold += bonus;
+                    } else if t.kind == crate::special::DOGE_MINER {
+                        let st = sides.get_mut(t.side);
+                        st.gold += (8.0 * crate::special::special_ability_multiplier(t.level)).round() as i32;
+                        if t.level >= 3 && !st.doge_moon_used {
+                            st.doge_moon_used = true;
+                            st.gold_boost_timer = 10.0;
+                        }
+                    }
                 }
                 println!("Kolo {} skonceno, pauza {} s", wave.0, ROUND_PAUSE_SECS);
             }
         }
     }
 }
-
 // nasobek HP v pozdnich kolech: od LATE_ROUND roste HP navic geometricky (pojistka, aby zapas skoncil)
 fn late_round_mul(round: u32) -> f32 {
     if round <= LATE_ROUND { 1.0 } else { LATE_ROUND_HP_GROWTH.powi((round - LATE_ROUND) as i32) }
@@ -98,7 +107,7 @@ fn spawn_round_wave(commands: &mut Commands, meshes: &mut Assets<Mesh>, material
                 Mesh2d(circle_mesh),
                 MeshMaterial2d(circle_mat),
                 Transform::from_xyz(base_x + jitter.x, base_y + jitter.y, 4.0),
-                Creep { is_boss, is_mega, base_radius: radius, speed_mul: 1.0, leak_cost },
+                Creep { is_boss, is_mega, max_hp_reductions: 0, base_radius: radius, speed_mul: 1.0, leak_cost },
                 side,
                 CreepMainCircle,
                 Health(hp),
@@ -340,30 +349,51 @@ pub fn update_hp_bar(
 pub fn despawn_dead_and_count(
     mut commands: Commands,
     mut sides: ResMut<Sides>,
-    mut diamonds: ResMut<Diamonds>,
     mut over: ResMut<MatchOver>,
-    q_creeps: Query<(Entity, &Transform, &Health, &Creep, &Side, Option<&SentUnit>), With<Creep>>,
+    q_creeps: Query<(Entity, &Transform, &Health, &Creep, &Side, Option<&SentUnit>, Option<&crate::components::DeathExplosion>), With<Creep>>,
 ) {
-    let mut dead: Vec<(Entity, Side, bool, bool, bool)> = Vec::new(); // (entity, lajna, boss, mega NEBO vetsi creep, odeslana jednotka)
+    let mut dead: Vec<(Entity, Side, bool, bool, bool, Option<(Vec2, f32, f32)>)> = Vec::new();
     let mut out: Vec<(Entity, Side, u32, Option<i32>)> = Vec::new();  // (entity, lajna, cena v zivotech, cena odeslane jednotky; None = bezny creep)
-    for (e, tf, hp, creep, &side, unit) in q_creeps.iter() {
-        if hp.0 <= 0.0 { dead.push((e, side, creep.is_boss, creep.is_mega || (creep.leak_cost == LEAK_ELITE && !creep.is_boss), unit.is_some())); }
+    for (e, tf, hp, creep, &side, unit, death_explosion) in q_creeps.iter() {
+        if hp.0 <= 0.0 {
+            let blast = death_explosion.map(|blast| (tf.translation.truncate(), blast.damage, blast.radius));
+            dead.push((e, side, creep.is_boss, creep.is_mega || (creep.leak_cost == LEAK_ELITE && !creep.is_boss), unit.is_some(), blast));
+        }
         else if tf.translation.y < crate::constants::LANE_Y - crate::constants::LANE_H / 2.0 - 10.0 {
             out.push((e, side, creep.leak_cost, unit.map(|u| u.cost)));
         }
     }
-    for (e, side, is_boss, mega_or_elite, is_unit) in dead {
+    let mut blasts = Vec::new();
+    for (e, side, is_boss, mega_or_elite, is_unit, blast) in dead {
         commands.entity(e).despawn_recursive();
+        if let Some((pos, damage, radius)) = blast { blasts.push((e, side, pos, damage, radius)); }
         if is_unit { continue; } // odeslana jednotka: za zabiti zadny gold
         // gold dostane ten, na ci lajne creep padl
         let st = sides.get_mut(side);
-        if is_boss && mega_or_elite {
-            st.gold += KILL_GOLD_MEGA;
-            if side == Side::Player { diamonds.0 += 1; println!("MEGA BOSS zabit! +{}G +1 diamant", KILL_GOLD_MEGA); }
+        if is_boss {
+            st.diamonds += 1;
         }
-        else if is_boss { st.gold += KILL_GOLD_BOSS; }
-        else if mega_or_elite { st.gold += KILL_GOLD_ELITE; }
-        else { st.gold += KILL_GOLD_NORMAL; }
+        let reward_multiplier = if st.gold_boost_timer > 0.0 { 2 } else { 1 };
+        if is_boss && mega_or_elite {
+            st.gold += KILL_GOLD_MEGA * reward_multiplier;
+            println!("{:?} mega boss zabit! +{}G +1 diamant", side, KILL_GOLD_MEGA);
+        }
+        else if is_boss { st.gold += KILL_GOLD_BOSS * reward_multiplier; }
+        else if mega_or_elite { st.gold += KILL_GOLD_ELITE * reward_multiplier; }
+        else { st.gold += KILL_GOLD_NORMAL * reward_multiplier; }
+    }
+    let mut blast_damage: HashMap<Entity, (f32, f32)> = HashMap::new();
+    for (origin, side, pos, damage, radius) in blasts {
+        for (target, tf, hp, _, &target_side, _, _) in q_creeps.iter() {
+            if target == origin || hp.0 <= 0.0 || target_side != side { continue; }
+            if tf.translation.truncate().distance_squared(pos) <= radius * radius {
+                let entry = blast_damage.entry(target).or_insert((hp.0, 0.0));
+                entry.1 += damage;
+            }
+        }
+    }
+    for (target, (health, damage)) in blast_damage {
+        commands.entity(target).insert(Health(health - damage));
     }
     for (e, side, leak_cost, sent_cost) in out {
         commands.entity(e).despawn_recursive();
@@ -410,7 +440,6 @@ pub fn send_unit_system(
     mut sides: ResMut<Sides>,
     round: Res<RoundState>,
     over: Res<MatchOver>,
-    towers: Query<&Tower>,
     assets: Res<CreepAssets>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -440,8 +469,7 @@ pub fn send_unit_system(
         income.amount += def.income as f32 * income_multiplier(income.sent[idx]); // scaling podle poctu odeslani TETO jednotky (wave_def::INCOME_TIERS)
         income.sent[idx] += 1;
         // poslana jednotka jde na lajnu SOUPERE
-        let (hp_mul, speed_mul) = barracks_buff(Side::Player, &towers);
-        spawn_sent_unit(&mut commands, &assets, &mut meshes, &mut materials, &asset_server, Side::Bot, kind, hp_mul, speed_mul);
+        spawn_sent_unit(&mut commands, &assets, &mut meshes, &mut materials, &asset_server, Side::Bot, kind, 1.0, 1.0);
         println!("Odeslana jednotka {} za {}G, income {:.1} / 7s", def.name, def.cost, income.amount);
     }
 }
@@ -469,7 +497,7 @@ pub fn spawn_sent_unit(
     let air = is_air(kind);
     let mut ec = commands.spawn((
         Transform::from_xyz(x, y, if air { 4.6 } else { 4.0 }), // letajici nad zemnimi
-        Creep { is_boss: false, is_mega: false, base_radius: radius, speed_mul: def.speed_mul, leak_cost: LEAK_NORMAL },
+        Creep { is_boss: false, is_mega: false, max_hp_reductions: 0, base_radius: radius, speed_mul: def.speed_mul, leak_cost: LEAK_NORMAL },
         CreepMainCircle,
         Health(def.hp),
         MaxHealth(def.hp),
@@ -823,7 +851,25 @@ fn guardian_destroy(commands: &mut Commands, grid: &mut Grid, path: &mut PathMap
     println!("Hlidac znicil vez na [{},{}] ({:?})", col, row, side);
 }
 
-// chuze hlidace: jako creep po BFS vzdalenostech; kdyz nema dalsi bod (kapsa / uplny block), zni vez pod sebou a jde dal; v cili zmizi
+fn spawn_guardian(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    side: Side,
+    pos: Vec2,
+) {
+    commands.spawn((
+        Mesh2d(meshes.add(Circle::new(GUARDIAN_RADIUS))),
+        MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::srgb(1.0, 0.85, 0.2)))),
+        Transform::from_xyz(pos.x, pos.y, 4.2),
+        Guardian,
+        side,
+    )).with_children(|p| {
+        p.spawn((Text2d::new("HLIDAC"), TextFont { font_size: 9.0, ..default() }, TextColor(Color::WHITE), Transform::from_xyz(0.0, GUARDIAN_RADIUS + 10.0, 0.4)));
+    });
+}
+
+// Hlidac jde cestou k cili; kdyz je lajna uplne zablokovana, dojde k vezi a znici ji jen zblizka.
 pub fn guardian_system(
     mut commands: Commands,
     time: Res<Time>,
@@ -841,12 +887,11 @@ pub fn guardian_system(
         let pos = tf.translation.truncate();
         if pos.y < LANE_Y - LANE_H / 2.0 - 10.0 { commands.entity(g).despawn_recursive(); continue; } // dosel do cile
         let Some((row, col)) = world_to_grid(side, pos.x, pos.y) else { tf.translation.y -= step; continue; }; // nad lajnou: rovne dolu
-        if row == 0 { tf.translation.y -= step; continue; } // posledni rada: rovne ven pod lajnu
-        // vstoupil shora do bunky s vezi (zablokovana horni rada): znicit ji
-        if grid.blocked[row][col] {
+        if grid.blocked[row][col] && pos.distance(grid_to_world(side, row, col)) <= GUARDIAN_ATTACK_DIST {
             guardian_destroy(&mut commands, grid, path, &mut selected, &towers, side, row, col);
             continue;
         }
+        if row == 0 { tf.translation.y -= step; continue; } // posledni rada: rovne ven pod lajnu
         let cur = path.dist[row][col];
         // soused blize k cili (z bunky bez cesty libovolny soused s cestou)
         let mut best: Option<(usize, usize, i32)> = None;
@@ -860,23 +905,46 @@ pub fn guardian_system(
             if best.map_or(true, |b| d < b.2) { best = Some((nr, nc, d)); }
         }
         if let Some((nr, nc, _)) = best {
-            let dir = (grid_to_world(side, nr, nc) - pos).normalize_or_zero();
-            tf.translation.x += dir.x * step;
-            tf.translation.y += dir.y * step;
+            let target = grid_to_world(side, nr, nc);
+            let offset = target - pos;
+            let movement = offset.normalize_or_zero() * step.min(offset.length());
+            tf.translation.x += movement.x;
+            tf.translation.y += movement.y;
             continue;
         }
-        // zadny dostupny dalsi bod: dole stoji vez = znicit ji jednou ranou (bez refundu), jinak jit rovne dolu
-        if grid.blocked[row - 1][col] && pos.distance(grid_to_world(side, row - 1, col)) <= GUARDIAN_ATTACK_DIST {
-            guardian_destroy(&mut commands, grid, path, &mut selected, &towers, side, row - 1, col);
-            continue;
+
+        if let Some((block_row, block_col)) = find_blocker(side, &grid.blocked, pos) {
+            if let Some(route) = path_to_adjacent_blocked_cell(&grid.blocked, (row, col), (block_row, block_col)) {
+                let block_pos = grid_to_world(side, block_row, block_col);
+                if pos.distance(block_pos) <= GUARDIAN_ATTACK_DIST {
+                    guardian_destroy(&mut commands, grid, path, &mut selected, &towers, side, block_row, block_col);
+                    continue;
+                }
+
+                let target = if route.len() > 1 {
+                    grid_to_world(side, route[1].0, route[1].1)
+                } else {
+                    let approach = grid_to_world(side, row, col);
+                    let direction = (approach - block_pos).normalize_or_zero();
+                    block_pos + direction * (CELL * 0.55)
+                };
+                let offset = target - pos;
+                let movement = offset.normalize_or_zero() * step.min(offset.length());
+                tf.translation.x += movement.x;
+                tf.translation.y += movement.y;
+                if tf.translation.truncate().distance(block_pos) <= GUARDIAN_ATTACK_DIST {
+                    guardian_destroy(&mut commands, grid, path, &mut selected, &towers, side, block_row, block_col);
+                }
+                continue;
+            }
         }
         tf.translation.y -= step;
     }
 }
 
-// === HLIDAC STRILI NA BLOK ===
-const SNIPE_STALL_SECS: f32 = 1.0; // po jak dlouhe dobe, kdy creepy nemuzou projit (nehybou se), hlidac vystreli
-const SNIPE_MSG_SECS: f32 = 4.0;   // jak dlouho je videt hlaska
+// === VYSLANI HLIDACE K BLOKU ===
+const GUARDIAN_STALL_SECS: f32 = 1.0;
+const GUARDIAN_MSG_SECS: f32 = 4.0;
 
 // nejlevnejsi cesta z horni rady na spodek, kde pruchod vezi stoji 1 (volna bunka 0); vrati nejvyssi vez na te ceste (tu, co creepum brani nejdriv)
 fn find_blocker(side: Side, blocked: &[[bool; COLS]; ROWS], near: Vec2) -> Option<(usize, usize)> {
@@ -920,18 +988,18 @@ fn find_blocker(side: Side, blocked: &[[bool; COLS]; ROWS], near: Vec2) -> Optio
     pick.map(|p| p.0)
 }
 
-// kdyz je lajna zablokovana a zadny nelitajici creep se 1 s nehybe: hlidac vystreli na vez v ceste (instantne) a ukaze hlasku
-pub fn guardian_snipe_system(
+// kdyz se creepy kvuli zablokovane ceste zastavi, posle k prekazce hlidace, ktery ji dojde zbourat
+pub fn guardian_dispatch_system(
     mut commands: Commands,
     time: Res<Time>,
     paused: Res<WavePaused>,
     mut sides: ResMut<Sides>,
-    mut selected: ResMut<SelectedCell>,
-    mut bolt_pool: ResMut<crate::systems::effects::BoltPool>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     mut stall: Local<[f32; 2]>,                              // jak dlouho uz creepy stoji (pro kazdou lajnu)
     mut prev: Local<std::collections::HashMap<Entity, Vec2>>, // pozice creepu v minulem snimku
-    towers: Query<(Entity, &Tower)>,
     creeps: Query<(Entity, &Transform, &Side), (With<Creep>, Without<Air>)>,
+    guards: Query<&Side, With<Guardian>>,
     mut msg: Query<(&mut GuardianMsg, &mut Visibility)>,
 ) {
     // hlaska po case zmizi
@@ -961,40 +1029,44 @@ pub fn guardian_snipe_system(
         }
     }
     let st = sides.get_mut(side);
-    let (grid, path) = (&mut st.grid, &mut st.path);
+    let (grid, path) = (&st.grid, &st.path);
     let stall = &mut stall[side.idx()];
     // lajna je zablokovana, kdyz zadna horni bunka nema cestu
     let blocked_lane = !(0..COLS).any(|c| !grid.blocked[ROWS - 1][c] && path.dist[ROWS - 1][c].is_some());
     if !any || moving || !blocked_lane { *stall = 0.0; continue; }
     *stall += time.delta_secs();
-    if *stall < SNIPE_STALL_SECS { continue; }
+    if *stall < GUARDIAN_STALL_SECS { continue; }
     *stall = 0.0;
     let near = sum / count.max(1.0); // stred creepu: strili se na vez nejblize jim
-    let Some((row, col)) = find_blocker(side, &grid.blocked, near) else { continue; };
-    // vystrel: svetla car z pasu nad lajnou na vez, vez zmizi hned
-    let tower_pos = grid_to_world(side, row, col);
-    crate::systems::effects::spawn_bolt(&mut commands, &mut bolt_pool, Vec2::new(tower_pos.x, LANE_Y + LANE_H / 2.0 + 60.0), tower_pos);
-    guardian_destroy(&mut commands, grid, path, &mut selected, &towers, side, row, col);
+    let Some(_blocker) = find_blocker(side, &grid.blocked, near) else { continue; };
+    if guards.iter().any(|&guard_side| guard_side == side) { continue; }
+    let Some((spawn_row, spawn_col)) = world_to_grid(side, near.x, near.y) else { continue; };
+    if grid.blocked[spawn_row][spawn_col] { continue; }
+    spawn_guardian(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        side,
+        grid_to_world(side, spawn_row, spawn_col),
+    );
     if side == Side::Player {
         for (mut m, mut vis) in msg.iter_mut() {
-            m.timer = Timer::from_seconds(SNIPE_MSG_SECS, TimerMode::Once);
+            m.timer = Timer::from_seconds(GUARDIAN_MSG_SECS, TimerMode::Once);
             *vis = Visibility::Visible;
         }
     }
     }
 }
 
-// === AURY CREEPU NA VEZE (Infernal, Pit Lord, Phoenix, Knight, Final Boss) ===
-// kazdy snimek: kazda vez spocita upravy od vsech aur v dosahu (TowerMods) a stomp omraceni; tower_shoot je pouzije
+// Creeps and support towers modify tower stats through TowerMods.
 pub fn tower_aura_system(
     mut commands: Commands,
     time: Res<Time>,
     paused: Res<WavePaused>,
     mut stomps: Local<Vec<(Vec2, f32, f32)>>, // (stred, radius, sekundy omraceni) pro tento snimek, znovupouzity buffer
     mut auras: Query<(&Transform, &mut TowerAura)>,
-    mut towers: Query<(Entity, &Transform, Option<&mut TowerMods>), With<Tower>>,
-    bells: Query<(Entity, &Transform, &Tower)>,
-    mut bell_list: Local<Vec<(Entity, Vec2, f32, u32)>>, // (Bell, pozice, okruh, rank) pro tento snimek
+    mut towers: Query<(Entity, &Transform, &Tower, Option<&mut TowerMods>)>,
+    supports: Query<(Entity, &Transform, &Tower)>,
 ) {
     if paused.0 { return; }
     let dt = time.delta_secs();
@@ -1005,11 +1077,7 @@ pub fn tower_aura_system(
             if a.timer.just_finished() { stomps.push((tf.translation.truncate(), a.radius, a.stomp_stun)); }
         }
     }
-    bell_list.clear();
-    for (e, tf, t) in bells.iter() {
-        if t.kind == crate::special::BELL { bell_list.push((e, tf.translation.truncate(), t.range, t.level)); }
-    }
-    for (t_ent, t_tf, mods) in towers.iter_mut() {
+    for (t_ent, t_tf, tower, mods) in towers.iter_mut() {
         let Some(mut mods) = mods else {
             if let Some(mut ec) = commands.get_entity(t_ent) { ec.try_insert(TowerMods::default()); } // vez dostane komponentu, pocita se od pristiho snimku
             continue;
@@ -1024,11 +1092,25 @@ pub fn tower_aura_system(
                 random = random.max(a.random_target);
             }
         }
-        // BELL: nejsilnejsi Bell v dosahu (vic se nescita, sama sebe neposiluje)
-        if let Some(&(_, _, _, rank)) = bell_list.iter().filter(|b| b.0 != t_ent && b.1.distance(t_pos) <= b.2).max_by_key(|b| b.3) {
-            rate *= 1.0 + crate::special::bell_rate(rank);
-            dmg *= 1.0 + crate::special::bell_dmg(rank);
+        let mut support_dmg = 0.0_f32;
+        let mut support_rate = 0.0_f32;
+        for (support_entity, support_tf, support) in supports.iter() {
+            if support.side != tower.side || support_entity == t_ent { continue; }
+            if support.kind == crate::special::GIGACHAD
+                && support_tf.translation.truncate().distance(t_pos) <= 2.0 * crate::constants::CELL
+            {
+                support_dmg = support_dmg.max(if support.level >= 3 { 0.20 } else { 0.12 * crate::special::special_ability_multiplier(support.level) });
+                support_rate = support_rate.max(if support.level >= 3 { 0.08 } else { 0.0 });
+            }
+            if support.kind == crate::special::NERFKA
+                && support.row.abs_diff(tower.row) <= 1
+                && support.col.abs_diff(tower.col) <= 1
+            {
+                support_rate += 0.05;
+            }
         }
+        dmg *= 1.0 + support_dmg;
+        rate *= 1.0 + support_rate;
         mods.dmg_mul = dmg;
         mods.range_mul = range;
         mods.rate_mul = rate;
@@ -1057,8 +1139,11 @@ pub fn income_system(
 ) {
     // income dostavaji obe strany, kazda podle sveho
     for st in sides.0.iter_mut() {
+        let boosted = st.gold_boost_timer > 0.0;
+        st.gold_boost_timer = (st.gold_boost_timer - time.delta_secs()).max(0.0);
         if !paused.0 && st.income.timer.tick(time.delta()).just_finished() {
-            let total = st.income.amount + st.income.carry; // desetinny zbytek se necha na pristi tik
+            let multiplier = if boosted { 2.0 } else { 1.0 };
+            let total = st.income.amount * multiplier + st.income.carry; // desetinny zbytek se necha na pristi tik
             let whole = total.floor();
             st.income.carry = total - whole;
             st.gold += whole as i32;
@@ -1067,12 +1152,4 @@ pub fn income_system(
     let income = &sides.get(Side::Player).income;
     let s = format!("Income in: {:.0}s (+{:.1})", income.timer.remaining_secs().ceil(), income.amount); // za kolik s prijde, v zavorce celkovy income
     for mut t in q_text.iter_mut() { if t.0 != s { t.0 = s.clone(); } }
-}
-
-// BARRACKS strany `sender`: (nasobek HP, nasobek rychlosti) jejich poslanych jednotek; plati nejvyssi Barracks
-pub fn barracks_buff(sender: Side, towers: &Query<&Tower>) -> (f32, f32) {
-    match towers.iter().filter(|t| t.side == sender && t.kind == crate::special::BARRACKS).map(|t| t.level).max() {
-        Some(rank) => (1.0 + crate::special::barracks_hp(rank), 1.0 + crate::special::barracks_speed(rank)),
-        None => (1.0, 1.0),
-    }
 }

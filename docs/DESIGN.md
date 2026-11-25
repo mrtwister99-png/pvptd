@@ -10,14 +10,13 @@ Rychlá a pestrá mobilní **1v1 PvP tower defense**. Kořeny má v Line Tower W
 ## 2. Odkud vycházíme
 
 - **Původní inspirace**: WC3 custom mapa (Line Tower Wars), 7+ hráčů na životy, nekonečné vlny, income tick každých 10 s, posílání jednotek dalšímu hráči v kruhu.
-- **Co už je hotové v kódu (Bevy 0.15, Android + PC)**:
-  - pole 7×14, stavění věží, pathfinding creepů kolem věží
-  - 7 typů věží × 5 úrovní (arrow, cannon, frost, fire, poison, sniper, shock), prodej se 75% vratkou
-  - 30 vln + nekonečný režim, mega/boss vlny
-  - posílání jednotek (panel S) → permanentní +income, income tick 7 s
-  - efekty (DoT, slow, chain, push), čísla poškození, pooly entit
-  - hlavní menu (funguje jen HRÁT)
-- **Rozdělané / chybí**: speciální schopnosti jednotek, ikony 3 věží, Leaderboard/Nastavení, žádný soupeř (zatím singleplayer).
+- **Co už je hotové v kódu (Bevy, Android + PC)**:
+  - dvě pole 7×14, stavění a cesta creepů kolem věží; soupeřem je bot
+  - katalog 15 Basic + 10 Special věží, výběr 4 Basic + 2 Special do balíčku
+  - výběr konkrétní věže pro stavbu, placené upgrady/merge a prodej
+  - Basic ranky 1–7, Special ranky 1–3; stavba Special věže stojí diamant
+  - kola, bossové, posílání jednotek soupeři, gold/income a efektové systémy
+- **Rozdělané / chybí**: online PvP, účty/progres karet, žebříček i detailní vyvážení zápasů.
 
 ## 3. Nová koncepce – hlavní pilíře
 
@@ -47,20 +46,19 @@ Rychlá a pestrá mobilní **1v1 PvP tower defense**. Kořeny má v Line Tower W
 ### C. Karty a spojování věží (2026-11-20)
 
 - **Karty jsou věže i jednotky.** Získávají se po zápase z **truhel** (a dalších odměn).
-- **Balíček**: do zápasu si hráč vybere **5 věží**.
+- **Balíček**: do zápasu si hráč vybere **4 Basic a 2 Special věže** z katalogu 15+10.
 - **Úroveň karty zvedá všechny statistiky** dané věže nebo jednotky. U jednotek to znamená silnější posílané creepy.
-- **Stavění v zápase**: tlačítko „postav“ vytvoří **náhodnou** věž z 5 vybraných, rank 1.
-  Cena: první **10 g**, každá další o **+10 g** víc (10, 20, 30…).
-  **Strop 100 g** (přidáno po testu: bez něj se rank 7 nedá postavit).
-- **Spojování (merge)**: dvě **stejné** věže stejného ranku se spojí → vznikne **náhodná věž z balíčku o rank vyšší**.
-- **Max rank 7** (rank 1 + až 6 spojení; na rank 7 je potřeba 64 staveb).
-- **Výběr balíčku** je v menu pod HRAT (tlačítko BALICEK), vybírá se přesně 5 věží.
+- **Stavění v zápase**: hráč zvolí typ ze svého balíčku a postaví právě tuto věž na vybrané prázdné políčko. Special věž při stavbě spotřebuje také jeden diamant.
+- **Vylepšování**: Basic věže se vylepšují za gold až na rank 7, Special až na rank 3. Ceny a statistiky jsou definované podle GDD.
+- **Spojování (merge)**: dvě stejné věže stejného ranku se mohou spojit → vznikne stejný typ věže o rank výš.
+- **Max rank** je 7 pro Basic a 3 pro Special; k dosažení ranku vede přímé placené vylepšování, merge zůstává alternativou.
+- **Výběr balíčku** je v menu pod HRAT (tlačítko BALICEK), vybírají se přesně 4 Basic a 2 Special věže.
 - **Prodej věže** zůstává: vrací 50 % všeho, co se do věže spojilo.
 - **Bludiště zůstává**: hráč si cestu staví sám, jak to v rychlosti zvládne. Spojení věže z bludiště odebere, takže se cesta změní (je to i taktika).
 - **Spojení přetažením**: věž přetáhneš na stejnou věž a nová věž vznikne **na místě, kam jsi táhl**.
 - **Jednotky**: posílat se dá **neomezeně, dokud máš gold**. V zápase jsou **odemčené všechny jednotky**. Sílu jim zvedají **jen karty** (z truhel), během zápasu se jednotky nevylepšují.
 
-- **V zápase se jen staví a spojuje**, žádná vylepšení typu věže za gold.
+- **V zápase se staví zvolený typ věže a věže se vylepšují za gold**; náhodná stavba z balíčku už neplatí.
 
 ### D. Soupeř a obrazovka (2026-11-20)
 
@@ -69,37 +67,43 @@ Rychlá a pestrá mobilní **1v1 PvP tower defense**. Kořeny má v Line Tower W
 
 ### B. Ekonomika (2026-11-20)
 
-- **Start**: **100 g** (na začátku jdou postavit 4 věže: 10+20+30+40 g), income **20**.
+- **Start**: **250 g** (stačí na čtyři nejlevnější Basic věže za 40+50+70+80 g), income **20**.
 - **Income tick každých 7 s**: dostaneš tolik goldu, kolik máš income.
 - **Poslaná jednotka trvale zvedne income** (např. Sheep za 5 g → +1).
 - **Gold za zabití creepa**: normální 15, větší 40, boss 80, mega boss 150 (poslané jednotky nic).
 - Tím se **ruší** dosavadní vylepšování lvl 1–5 za gold (Basic Tower → Phantom Archer…). Síla věže = úroveň karty × rank v zápase.
 
-### Věže (2026-11-20) – 18 druhů, balíček 5 z 18
+### Věže – katalog GDD (15 Basic + 10 Special)
 
 | # | Věž | Co dělá |
 |---|---|---|
-| 1 | ARROW | rychlé střely na jeden cíl |
-| 2 | CANNON | plošné poškození, jen zem |
-| 3 | FROST | zmrazí / zpomalí víc creepů |
-| 4 | FIRE | zapálí (poškození v čase), plošně |
-| 5 | POISON | jed + mírné zpomalení |
-| 6 | SNIPER | velký dosah, silná rána |
-| 7 | LIGHTNING | blesk přeskakuje, omráčí / odhodí |
-| 8 | HARPOON | jen na létající, srazí je na zem (pak musí bludištěm) |
-| 9 | GEYSER | pulz odhodí pozemní creepy v okolí zpět |
-| 10 | EXECUTIONER | + % chybějícího HP, poprava pod hranicí (ne boss) |
-| 11 | VOODOO | značka: část poškození se přenese na okolní creepy |
-| 12 | CURSE | značka: creep dostává víc poškození, nefunguje mu léčení ani aura |
-| 13 | ILLUSION | zmatený creep jde náhodným směrem na náhodnou vzdálenost (víc s rankem) |
-| 14 | TWIN | slabší střílna; při spojení zůstane na původním místě nová věž R1 (2× R1 → R2 + R1) |
-| 15 | MINT | nestřílí, gold na konci každého kola |
-| 16 | BELL | nestřílí, okolní věže střílí rychleji a silněji |
-| 17 | SPIKES | past na blízkého pozemního creepa (R5 zpomalí, R7 otráví) |
-| 18 | BARRACKS | nestřílí, tvoje poslané jednotky mají víc HP a rychlost |
+| 1 | Bramboromet | splash a šance na stun na R7 |
+| 2 | Nerfka | rychlá střelba, zesílení od sousedních Nerfek |
+| 3 | Babička | každý šestý zásah je kritický a omráčí |
+| 4 | Router | zpomalení, na R7 krátký stun |
+| 5 | Kaktus | kletba a bleed |
+| 6 | Toustovač | burn a exploze při smrti creepa na R7 |
+| 7 | Muchomůrka | jed, který se skládá do stacků |
+| 8 | Mrazák | zpomalení a možnost zmrazení |
+| 9 | Tesla | řetězový zásah, na R7 zasáhne více cílů |
+| 10 | Sniper | dlouhý dosah, kritický zásah a poprava slabých creepů |
+| 11 | Katapult | vysoké plošné poškození |
+| 12 | DJ | knockback a pravidelný plošný DROP |
+| 13 | Pepa | opilost může změnit směr creepa |
+| 14 | Kasička | gold za kola a bonus každých pět kol |
+| 15 | Daňový úřad | kletba zvyšující utržené poškození |
+| 16 | Chuck Norris | true damage a poprava, bonus proti bossům |
+| 17 | Tchýně | kritické zásahy, snížení max HP a stun bosse |
+| 18 | Shrek Bažina | zpomalení a návrat creepů na start jednou za kolo |
+| 19 | Gigachad Gym | aura zvyšující poškození a rychlost okolních věží |
+| 20 | Doge Miner | gold za kola a jednorázové zdvojnásobení goldů |
+| 21 | Trollface | knockback, na R3 prohodí creepa s nejvyšším a nejnižším HP |
+| 22 | Haxor | šance na hack, na R3 plošné omráčení jednou za kolo |
+| 23 | Karen Manažerka | zpomalení, umlčení a snížení max HP bosse |
+| 24 | Černá díra do Brna | přitahování; na R3 šance vrátit creepa soupeři s dvojnásobným HP |
+| 25 | Admin Banhammer | každý pátý zásah ubere část aktuálního HP |
 
-Parametry speciálních věží podle ranku jsou v `src/special.rs`, základní čísla v `src/tower_def.rs`.
-Nápady na později: Laser (sílí na jednom cíli), Nekromant (kostlivci jako dočasné zdi), Chronometr, Překupník / Zbrojnice / Líheň (vylepšení posílaných jednotek), Pokladnice (úrok).
+Parametry věží jsou v `src/tower_def.rs`; popisy schopností jsou v `src/special.rs`. Některé schopnosti jsou v současné implementaci zjednodušené a je třeba je doladit při herním testování.
 
 ## 5. Otevřené otázky
 

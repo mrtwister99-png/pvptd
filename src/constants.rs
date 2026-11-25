@@ -26,7 +26,7 @@ pub const CAM_BASE_Y: f32 = (SAFE_TOP + 36.0 - SAFE_BOTTOM) / 2.0;
 // 1v1: lajna bota lezi ve svete o tolik vpravo od hracovy. Je to dal nez nejvetsi dosah veze,
 // takze strely, aury a leceni jedne strany nikdy nezasahnou na druhou.
 pub const SIDE_OFFSET_X: f32 = 3000.0;
-pub const START_GOLD: i32 = 100;  // na zacatku jde postavit 4 veze (10+20+30+40 g)
+pub const START_GOLD: i32 = 250;  // staci na ctyri nejlevnejsi Basic veze (40+50+70+80 g)
 pub const START_LIVES: u32 = 15;  // oba zacinaji s 15, dohromady 30 (pretahovana)
 pub const TOTAL_LIVES: u32 = 30;
 
@@ -46,16 +46,46 @@ pub const LEAK_BOSS: u32 = 4;
 
 pub const CREEP_BASE_SPEED: f32 = 85.0;
 pub const MAX_TOWER_LEVEL: u32 = 7;   // max rank veze (spojovanim)
-pub const RANK_EXTRA_DMG_MUL: f32 = 2.2; // rank 6 = rank 5 x 2.2 poskozeni, rank 7 = x 4.84
-pub const BUILD_COST_STEP: i32 = 10;  // stavba: 1. vez 10 g, 2. 20 g, 3. 30 g...
-pub const BUILD_COST_MAX: i32 = 100;  // ...ale nejvys 100 g (bez stropu by rank 7 = 64 staveb nesel nikdy postavit)
-pub const DECK_SIZE: usize = 5;       // kolik vezi si hrac bere do zapasu
+pub const BASIC_TOWER_COUNT: usize = 15;
+pub const DECK_BASIC_SIZE: usize = 4;
+pub const DECK_SPECIAL_SIZE: usize = 2;
+pub const DECK_SIZE: usize = DECK_BASIC_SIZE + DECK_SPECIAL_SIZE;
 // vsechny veze, ze kterych se sklada balicek (druh, nazev)
-pub const ALL_TOWERS: [(u8, &str); 18] = [
-    (1, "ARROW"), (2, "CANNON"), (3, "FROST"), (4, "FIRE"), (5, "POISON"), (6, "SNIPER"), (7, "LIGHTNING"),
-    (8, "HARPOON"), (9, "GEYSER"), (10, "EXECUTIONER"), (11, "VOODOO"), (12, "CURSE"), (13, "ILLUSION"),
-    (14, "TWIN"), (15, "MINT"), (16, "BELL"), (17, "SPIKES"), (18, "BARRACKS"),
+pub const ALL_TOWERS: [(u8, &str); 25] = [
+    (1, "BRAMBOROMET"),
+    (2, "NERFKA"),
+    (3, "BABICKA"),
+    (4, "ROUTER"),
+    (5, "KAKTUS"),
+    (6, "TOUSTOVAC"),
+    (7, "MUCHOMURKA"),
+    (8, "MRAZAK"),
+    (9, "TESLA"),
+    (10, "SNIPER"),
+    (11, "KATAPULT"),
+    (12, "DJ"),
+    (13, "PEPA"),
+    (14, "KASICKA"),
+    (15, "DANOVY URAD"),
+    (16, "CHUCK NORRIS"),
+    (17, "TCHYNE"),
+    (18, "SHREK BAZINA"),
+    (19, "GIGACHAD GYM"),
+    (20, "DOGE MINER"),
+    (21, "TROLLFACE"),
+    (22, "HAXOR"),
+    (23, "KAREN MANAZERKA"),
+    (24, "CERNA DIRA DO BRNA"),
+    (25, "ADMIN BANHAMMER"),
 ];
+
+pub fn is_special_tower(kind: u8) -> bool {
+    kind > BASIC_TOWER_COUNT as u8 && kind <= ALL_TOWERS.len() as u8
+}
+
+pub fn tower_rank_cap(kind: u8) -> u32 {
+    if is_special_tower(kind) { 3 } else { MAX_TOWER_LEVEL }
+}
 // kratka zkratka na vez bez ikony (aby se barevne ctverecky daly rozeznat)
 pub fn tower_tag(kind: u8) -> &'static str {
     ALL_TOWERS.iter().find(|t| t.0 == kind).map_or("?", |t| &t.1[..3])
@@ -67,7 +97,7 @@ pub const SELL_REFUND: f32 = 0.5;    // kolik z celkove investice (vsech staveb 
 pub const LEAK_GOLD_RATIO: f32 = 0.2; // kdyz tvoje jednotka projde: tolik z ceny se vrati jako gold
 pub const TOWER_RANGE_SCALE: f32 = 0.5; // dosah vsech veze se nasobi timto cislem (1.0 = puvodni dosahy z tabulky)
 
-pub const TOWER_POISON: u8 = 5;
+pub const TOWER_POISON: u8 = 7;
 
 // HP creepu roste s vlnou (velikost uz ne)
 pub const CREEP_GROWTH_PER_WAVE: f32 = 0.07;
@@ -77,12 +107,6 @@ pub const FROST_OUTLINE_MAX_EXTRA: f32 = 36.0;
 
 // None = veze zatim nema ikonu (poison, sniper) -> kresli se barevny ctverecek
 pub fn tower_icon_path(kind: u8) -> Option<&'static str> {
-    match kind {
-        1 => Some("icons/towers/arrow.png"),
-        2 => Some("icons/towers/cannon.png"),
-        3 => Some("icons/towers/frost.png"),
-        4 => Some("icons/towers/fire.png"),
-        7 => Some("icons/towers/ele.png"), // blesk (Lightning / Shock)
-        _ => None,
-    }
+    let _ = kind;
+    None
 }

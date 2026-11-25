@@ -35,16 +35,17 @@ Tohle je nejvíc práce, ale připraví to půdu i pro online: online soupeř je
 - [x] Obrazovka výhry / prohry, návrat do menu (nový zápas začne od nuly).
 
 ### Krok 3 – ekonomika a posílání soupeři
-- [x] Start 30 g, income 10, tick 7 s, gold za zabití.
+- [x] Start 250 g, income 20, tick 7 s, gold za zabití.
 - [x] Poslaná jednotka se objeví na **soupeřově** lajně a trvale zvedne income. Posílat jde jen během kola.
 - [x] Posílat jde neomezeně, dokud je gold, všechny jednotky odemčené.
 
-### Krok 4 – náhodná stavba a spojování (merge)
-- [x] Balíček 5 věží: v menu tlačítko BALICEK pod HRAT, výběr přesně 5 ze 7 věží (zatím se neukládá po zavření hry).
-- [x] Klepnutí na prázdné políčko → tlačítko POSTAVIT: náhodná věž z balíčku, rank 1; cena 10, 20, 30… g, strop 100 g.
-- [x] Přetažení věže na stejnou věž stejného ranku → **náhodná věž z balíčku o rank výš** na cílovém místě; uvolněné políčko se vrátí do bludiště (přepočet cesty).
-- [x] Max rank 7. Ranky 1–5 z tabulky, 6 a 7 = rank 5 × 2,2 / × 4,84 poškození.
-- [x] Staré vylepšování a nabídka B odstraněny. Prodej zůstává: vrací 50 % všeho, co se do věže spojilo.
+### Krok 4 – výběr stavby a vylepšování
+- [x] Katalog 15 Basic + 10 Special věží; balíček obsahuje přesně 4 Basic a 2 Special.
+- [x] Výběr typu věže v herním panelu; prázdné políčko postaví právě zvolený typ z balíčku.
+- [x] Vylepšení Basic věže za gold až na rank 7, Special až na rank 3; ceny a statistiky vycházejí z GDD.
+- [x] Stavba Special věže vyžaduje a spotřebuje jeden diamant.
+- [x] Spojení stejných věží stejného ranku zůstává jako alternativní cesta k upgradu a zachová typ věže.
+- [x] Prodej zůstává: vrací 50 % investovaného goldu.
 
 ### Krok 5 – bot
 - [x] Bot staví, když má gold, a skládá bludiště „had“ (zdi přes lajnu s mezerou střídavě vlevo/vpravo), nikdy si cestu nezazdí.
@@ -53,6 +54,7 @@ Tohle je nejvíc práce, ale připraví to půdu i pro online: online soupeř je
 - [ ] Úrovně obtížnosti bota (lehký / normální / těžký) – později.
 
 ### Krok 6 – testování a ladění na telefonu
+- [x] Automatické testy katalogu 25 věží, cen/upgradů, rank capů a diamantové ceny Special stavby.
 - [ ] Délka zápasu 4–5 min, rank 7 je reálný? (Test: bez stropu měl bot v 7. kole jen 4 věže → přidán strop 100 g. Ověřit hraním.)
 - [ ] Ceny jednotek, income, gold za zabití, růst vln.
 
@@ -62,6 +64,8 @@ Tohle je nejvíc práce, ale připraví to půdu i pro online: online soupeř je
 `HIDDEN_WINDOW=1` otevře okno mimo obrazovku (pro automatické testy).
 `AUTOPLAY_BOTH=1` = bot hraje i za tebe (bot proti botovi).
 `SCREENSHOT_AT="15,20" SCREENSHOT_DIR=slozka` uloží screenshoty v daných sekundách zápasu (`SCREENSHOT_VIEW=bot` = kamera na lajně bota).
+Na PC se šipky pohybují o jedno políčko. Drží-li se současně Shift a šipka, pohyb je o dvě políčka daným směrem.
+Pauzu otevře tlačítko PAUSE; pokračovat lze tlačítkem POKRAČOVAT nebo mezerníkem. Restart, návrat do menu i ukončení hry vyžadují potvrzení ANO/NE.
 
 ## Další etapa (po botovi)
 Karty a truhly, výběr balíčku, úrovně karet, uložení progresu v telefonu → online 1v1, účty, žebříček → kosmetika, diamanty, obchod.

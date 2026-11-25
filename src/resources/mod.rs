@@ -25,8 +25,6 @@ pub struct MatchOver(pub Option<crate::components::Side>);
 #[derive(Resource)]
 pub struct WavePaused(pub bool);
 #[derive(Resource)]
-pub struct Diamonds(pub i32);
-#[derive(Resource)]
 pub struct WaveCount(pub u32);
 // income: kazdych 7s pripise `amount` gold (zvysuje se odesilanim jednotek)
 pub struct Income { pub amount: f32, pub carry: f32, pub sent: [u32; 32], pub timer: Timer } // amount = gold za tik, carry = zbytek za desetinnou carkou, sent = kolik jednotek uz odeslano
@@ -34,6 +32,9 @@ pub struct Income { pub amount: f32, pub carry: f32, pub sent: [u32; 32], pub ti
 // stav jedne strany (hrac / bot): vlastni gold, income, zivoty a bludiste
 pub struct SideState {
     pub gold: i32,
+    pub diamonds: i32,
+    pub gold_boost_timer: f32,
+    pub doge_moon_used: bool,
     pub income: Income,
     pub lives: u32,
     pub grid: Grid,
@@ -46,12 +47,15 @@ impl SideState {
     pub fn new() -> Self {
         Self {
             gold: crate::constants::START_GOLD,
+            diamonds: 0,
+            gold_boost_timer: 0.0,
+            doge_moon_used: false,
             income: Income { amount: crate::constants::BASE_INCOME, carry: 0.0, sent: [0; 32], timer: Timer::from_seconds(7.0, TimerMode::Repeating) },
             lives: crate::constants::START_LIVES,
             grid: Grid { blocked: [[false; COLS]; ROWS] },
             path: PathMap { dist: [[None; COLS]; ROWS] },
             builds: 0,
-            deck: vec![1, 2, 3, 4, 6],
+            deck: vec![1, 2, 3, 4, 16, 17],
         }
     }
 }
@@ -73,17 +77,17 @@ impl Sides {
 #[derive(Resource)]
 pub struct Deck(pub Vec<u8>);
 impl Default for Deck {
-    fn default() -> Self { Self(vec![1, 2, 3, 4, 6]) }
+    fn default() -> Self { Self(vec![1, 2, 3, 4, 16, 17]) }
 }
 
 // pretahovani veze prstem / mysi (spojovani): odkud se tahne a jestli se uz pohnul
 #[derive(Resource, Default)]
 pub struct TowerDrag { pub from: Option<(usize, usize)>, pub start: Vec2, pub moved: bool }
 
-// ovladani klavesnici: Enter na prazdnem policku pripravi stavbu (druhy Enter postavi),
+// ovladani klavesnici: Enter na prazdnem policku postavi, S na vezi = prodat (okno ANO/NE),
 // Enter na vezi ji vezme a nese (Enter na stejne vezi stejneho ranku = spojit, Esc = zrusit)
 #[derive(Resource, Default)]
-pub struct KeyControl { pub build_armed: Option<(usize, usize)>, pub carry: Option<(usize, usize)> }
+pub struct KeyControl { pub carry: Option<(usize, usize)>, pub sell_confirm: Option<(usize, usize)> } // carry = nesena vez, sell_confirm = otevrene okno ANO/NE pro prodej
 
 // na kterou lajnu se prave diva kamera
 #[derive(Resource)]

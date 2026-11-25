@@ -1,10 +1,10 @@
 
 use bevy::prelude::*;
-use crate::components::{GoldText, DiamondText, LivesText, WaveText, WaveTimerText, Side, GameOverRoot, GameOverMenuButton};
-use crate::resources::{Sides, Diamonds, WaveCount, RoundState, RoundPhase, WavePaused, MatchOver};
+use crate::components::{GoldText, DiamondText, LivesText, WaveText, WaveTimerText, Side, GameOverRoot, GameOverMenuButton, PauseMenuRoot, PauseOptionsRoot, PauseConfirmRoot, PauseConfirmText, PauseMenuButton, PauseResumeButton, PauseConfirmYesButton, PauseConfirmNoButton};
+use crate::resources::{Sides, WaveCount, RoundState, RoundPhase, WavePaused, MatchOver};
 use crate::wave_def::get_creep_color_and_hp;
 use crate::constants::BOSS_EVERY;
-use crate::menu::AppState;
+use crate::menu::{AppState, PendingPauseAction, PauseAction, PauseOutcome, resolve_pause_confirmation};
 
 // pravy horni ctverecek: vzdy zivoty soupere (bota) + kam tlacitko prepne
 pub fn opponent_hp_system(
@@ -19,7 +19,6 @@ pub fn opponent_hp_system(
 
 pub fn update_ui(
     sides: Res<Sides>,
-    diamonds: Res<Diamonds>,
     wave: Res<WaveCount>,
     mut q_esc: Query<&mut Text, (With<LivesText>, Without<GoldText>, Without<DiamondText>, Without<WaveText>, Without<WaveTimerText>)>,
     mut q_gold: Query<&mut Text, (With<GoldText>, Without<LivesText>, Without<DiamondText>, Without<WaveText>, Without<WaveTimerText>)>,
@@ -27,7 +26,7 @@ pub fn update_ui(
     mut q_wave: Query<&mut Text, (With<WaveText>, Without<GoldText>, Without<DiamondText>, Without<LivesText>, Without<WaveTimerText>)>,
 ) {
     for mut t in q_gold.iter_mut() { t.0 = format!("Gold: {}", sides.get(Side::Player).gold); }
-    for mut t in q_diamond.iter_mut() { t.0 = format!("Diamonds: {}", diamonds.0); }
+    for mut t in q_diamond.iter_mut() { t.0 = format!("Diamonds: {}", sides.get(Side::Player).diamonds); }
     if sides.is_changed() {
         let s = format!("Zivoty: {} | Bot: {}", sides.get(Side::Player).lives, sides.get(Side::Bot).lives);
         for mut t in q_esc.iter_mut() { if t.0 != s { t.0 = s.clone(); } }
@@ -113,11 +112,73 @@ pub fn game_over_button_system(
     if q.iter().any(|i| *i == Interaction::Pressed) { next.set(AppState::Menu); }
 }
 
-// panel se staty: vybrana vez = jmeno, rank, poskozeni, rychlost, dosah, schopnost, prodej;
-// vybrane prazdne policko = z jakych vezi muze POSTAVIT vybrat
+pub fn pause_menu_system(
+    mut paused: ResMut<WavePaused>,
+    over: Res<MatchOver>,
+    mut pending: ResMut<PendingPauseAction>,
+    mut next: ResMut<NextState<AppState>>,
+    mut app_exit: EventWriter<AppExit>,
+    mut q_root: Query<&mut Node, (With<PauseMenuRoot>, Without<PauseOptionsRoot>, Without<PauseConfirmRoot>)>,
+    mut q_options: Query<&mut Node, (With<PauseOptionsRoot>, Without<PauseConfirmRoot>)>,
+    mut q_confirm: Query<&mut Node, (With<PauseConfirmRoot>, Without<PauseOptionsRoot>)>,
+    mut q_text: Query<&mut Text, With<PauseConfirmText>>,
+    q_actions: Query<(&Interaction, &PauseMenuButton), Changed<Interaction>>,
+    q_resume: Query<&Interaction, (Changed<Interaction>, With<PauseResumeButton>)>,
+    q_yes: Query<&Interaction, (Changed<Interaction>, With<PauseConfirmYesButton>)>,
+    q_no: Query<&Interaction, (Changed<Interaction>, With<PauseConfirmNoButton>)>,
+) {
+    if over.0.is_some() {
+        pending.0 = None;
+    } else {
+        for (interaction, button) in q_actions.iter() {
+            if *interaction == Interaction::Pressed { pending.0 = Some(button.0); }
+        }
+        if q_no.iter().any(|interaction| *interaction == Interaction::Pressed) {
+            pending.0 = None;
+        }
+        if q_resume.iter().any(|interaction| *interaction == Interaction::Pressed) {
+            paused.0 = false;
+            pending.0 = None;
+        }
+        if q_yes.iter().any(|interaction| *interaction == Interaction::Pressed) {
+            if let Some(action) = pending.0 {
+                match resolve_pause_confirmation(action, true) {
+                    Some(PauseOutcome::Restart) => next.set(AppState::Restarting),
+                    Some(PauseOutcome::Menu) => next.set(AppState::Menu),
+                    Some(PauseOutcome::Exit) => { app_exit.send(AppExit::Success); }
+                    None => {}
+                }
+                pending.0 = None;
+            }
+        }
+    }
+
+    let visible = paused.0 && over.0.is_none();
+    if !visible { pending.0 = None; }
+    for mut node in q_root.iter_mut() {
+        node.display = if visible { Display::Flex } else { Display::None };
+    }
+    for mut node in q_options.iter_mut() {
+        node.display = if visible && pending.0.is_none() { Display::Flex } else { Display::None };
+    }
+    for mut node in q_confirm.iter_mut() {
+        node.display = if visible && pending.0.is_some() { Display::Flex } else { Display::None };
+    }
+    if let Some(action) = pending.0 {
+        let text = match action {
+            PauseAction::Restart => "Opravdu restartovat zapas?",
+            PauseAction::Menu => "Opravdu odejit do menu?",
+            PauseAction::Exit => "Opravdu ukoncit hru?",
+        };
+        for mut label in q_text.iter_mut() {
+            if label.0 != text { label.0 = text.to_string(); }
+        }
+    }
+}
+
+// panel se staty vybrane veze; volba stavby je v samostatnem panelu
 pub fn tower_info_system(
     selected: Res<crate::resources::SelectedCell>,
-    sides: Res<Sides>,
     panels: Res<crate::resources::PanelsOpen>,
     kc: Res<crate::resources::KeyControl>,
     towers: Query<(&crate::components::Tower, Option<&crate::components::TowerMods>)>,
@@ -125,7 +186,10 @@ pub fn tower_info_system(
     mut q_text: Query<&mut Text, With<crate::components::TowerInfoText>>,
 ) {
     use crate::constants::{ALL_TOWERS, SELL_REFUND, TOWER_POISON};
-    let show = selected.0.is_some() && !panels.send;
+    let selected_tower = selected.0.map_or(false, |(r, c)| {
+        towers.iter().any(|(t, _)| t.side == Side::Player && t.row == r && t.col == c)
+    });
+    let show = selected_tower && !panels.send;
     for mut n in q_panel.iter_mut() { let d = if show { Display::Flex } else { Display::None }; if n.display != d { n.display = d; } }
     let Some((r, c)) = selected.0 else { return; };
     let name_of = |k: u8| ALL_TOWERS.iter().find(|t| t.0 == k).map_or("?", |t| t.1);
@@ -136,7 +200,7 @@ pub fn tower_info_system(
             let mut lines = vec![format!("{}  ({} R{})", title.to_uppercase(), name_of(t.kind), t.level)];
             let rate_mul = mods.map_or(1.0, |m| m.rate_mul);
             let dmg_mul = mods.map_or(1.0, |m| m.dmg_mul);
-            if crate::special::shoots(t.kind) || matches!(t.kind, crate::special::GEYSER | crate::special::SPIKES) {
+            if crate::special::shoots(t.kind) {
                 lines.push(format!("Poskozeni: {:.0}-{:.0}   Utoku: {:.2}/s", t.damage_min * dmg_mul, t.damage_max * dmg_mul, t.fire_rate * rate_mul));
             }
             if t.range > 0.0 { lines.push(format!("Dosah: {:.0}", t.range)); }
@@ -149,23 +213,23 @@ pub fn tower_info_system(
             if !extra.is_empty() { lines.push(extra.join(", ")); }
             let special = crate::special::describe(t.kind, t.level);
             if !special.is_empty() { lines.push(special); }
-            if rate_mul > 1.0 || dmg_mul > 1.0 { lines.push("Posilena od BELL".to_string()); }
+            if rate_mul > 1.0 || dmg_mul > 1.0 { lines.push("Posilena podporou".to_string()); }
             lines.push(format!("Prodej: +{}G", (t.invested as f32 * SELL_REFUND) as i32));
             lines.join("
 ")
         }
         None => {
-            let deck: Vec<&str> = sides.get(Side::Player).deck.iter().map(|&k| name_of(k)).collect();
-            format!("POSTAVIT: nahodna vez R1 z balicku
-{}", deck.join(", "))
+            "VYBER VEZ Z NABIDKY".to_string()
         }
     };
     // napoveda pro klavesnici
     let s = if let Some(from) = kc.carry {
         let what = towers.iter().find(|(t, _)| t.side == Side::Player && t.row == from.0 && t.col == from.1).map(|(t, _)| format!("{} R{}", name_of(t.kind), t.level)).unwrap_or_default();
         format!("NESES {}: sipkami na stejnou vez,\nEnter = spojit, Esc = zrusit\n\n{}", what, s)
-    } else if kc.build_armed == Some((r, c)) {
-        format!("Enter znovu = POSTAVIT\n\n{}", s)
-    } else { s };
+    } else if towers.iter().any(|(t, _)| t.side == Side::Player && t.row == r && t.col == c) {
+        format!("{}\n\nEnter = vzit a spojit, S = prodat", s)
+    } else {
+        format!("{}\n\nEnter = postavit", s)
+    };
     for mut t in q_text.iter_mut() { if t.0 != s { t.0 = s.clone(); } }
 }

@@ -40,7 +40,8 @@ impl Plugin for FxPlugin {
             Material2dPlugin::<GlowMaterial>::default(),
             Material2dPlugin::<RangeMaterial>::default(),
             Material2dPlugin::<ShockwaveMaterial>::default(),
-        ));
+        ))
+        .add_plugins(StatusFxPlugin);
     }
 }
 
@@ -93,3 +94,35 @@ pub fn range_params(color: Color, radius: f32) -> FxParams {
     params(color, Vec4::new(3.0 / radius.max(1.0), 0.0, 0.0, 0.0))
 }
 
+
+// === ZPOMALENI: shaderovy obrys kolem creepa (assets/shaders/status.wgsl) ===
+fx_material!(StatusMaterial, "shaders/status.wgsl");
+
+pub struct StatusFxPlugin;
+impl Plugin for StatusFxPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(Material2dPlugin::<StatusMaterial>::default())
+            .add_systems(Update, slow_ring_swap_system);
+    }
+}
+
+// kazdy novy obrys zpomaleni (SlowOutline) dostane misto plneho kruhu shaderovy kruzek;
+// zmensovani podle zbyvajiciho casu dela dal update_outline pres scale
+fn slow_ring_swap_system(
+    mut commands: Commands,
+    q: Query<Entity, Added<crate::components::SlowOutline>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut mats: ResMut<Assets<StatusMaterial>>,
+    mut cache: Local<Option<(Handle<Mesh>, Handle<StatusMaterial>)>>,
+) {
+    if q.is_empty() { return; }
+    let (quad, mat) = cache.get_or_insert_with(|| (
+        meshes.add(Rectangle::new(2.0, 2.0)), // 2x2: scale = polomer (stejne jako puvodni kruh)
+        mats.add(StatusMaterial { params: params(Color::srgba(0.35, 0.75, 1.0, 0.95), Vec4::ZERO) }),
+    )).clone();
+    for e in q.iter() {
+        if let Some(mut ec) = commands.get_entity(e) {
+            ec.remove::<MeshMaterial2d<ColorMaterial>>().try_insert((Mesh2d(quad.clone()), MeshMaterial2d(mat.clone())));
+        }
+    }
+}

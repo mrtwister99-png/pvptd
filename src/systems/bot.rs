@@ -4,9 +4,9 @@ use bevy::prelude::*;
 use rand::Rng;
 use crate::components::{Side, Tower, Selling};
 use crate::constants::{BOT_THINK_SECS, COLS, ROWS};
-use crate::resources::{CreepAssets, MatchOver, RoundPhase, RoundState, Sides, WavePaused};
-use crate::systems::creep::{spawn_sent_unit, barracks_buff};
-use crate::systems::tower_build::{build_cost, try_build_random, try_merge, TowerRef};
+use crate::resources::{CreepAssets, MatchOver, RoundPhase, RoundState, SideState, Sides, WavePaused};
+use crate::systems::creep::spawn_sent_unit;
+use crate::systems::tower_build::{tower_build_cost, try_build_kind, try_merge, TowerRef};
 use crate::utils::compute_path;
 use crate::wave_def::{get_unit_def, income_multiplier, UNIT_COUNT};
 
@@ -34,6 +34,18 @@ fn keeps_path_open(blocked: &[[bool; COLS]; ROWS], row: usize, col: usize) -> bo
     (0..COLS).any(|c| !b[ROWS - 1][c] && dist[ROWS - 1][c].is_some())
 }
 
+fn next_affordable_tower(st: &SideState) -> Option<u8> {
+    let len = st.deck.len();
+    if len == 0 { return None; }
+    let start = st.builds as usize % len;
+    (0..len)
+        .map(|offset| st.deck[(start + offset) % len])
+        .find(|&kind| {
+            st.gold >= tower_build_cost(kind)
+                && (!crate::constants::is_special_tower(kind) || st.diamonds > 0)
+        })
+}
+
 pub fn bot_system(
     mut commands: Commands,
     time: Res<Time>,
@@ -49,7 +61,6 @@ pub fn bot_system(
     mut status: Local<u32>, // pocitadlo pro vypis stavu do logu
     wave: Res<crate::resources::WaveCount>,
     towers: Query<(Entity, &Tower), Without<Selling>>,
-    all_towers: Query<&Tower>,
 ) {
     if paused.0 || over.0.is_some() { return; }
     *think += time.delta_secs();
@@ -73,7 +84,7 @@ pub fn bot_system(
             let mut pair: Option<(TowerRef, TowerRef)> = None;
             for (i, a) in mine.iter().enumerate() {
                 for b in mine.iter().skip(i + 1) {
-                    if a.kind == b.kind && a.rank == b.rank && a.rank < crate::constants::MAX_TOWER_LEVEL && pair.map_or(true, |(p, _)| a.rank < p.rank) {
+                    if a.kind == b.kind && a.rank == b.rank && a.rank < crate::constants::tower_rank_cap(a.kind) && pair.map_or(true, |(p, _)| a.rank < p.rank) {
                         // nova vez zustane na policku vys v bludisti (blize vstupu = dele strili), uvolni se to nizsi
                         pair = Some(if a.row >= b.row { (*b, *a) } else { (*a, *b) });
                     }
@@ -89,13 +100,14 @@ pub fn bot_system(
         let enough = mine.len() >= want;
         let invest = enough && round.phase == RoundPhase::Running && rand::thread_rng().gen_bool(0.3);
         let st = sides.get(me);
-        let cost = build_cost(st.builds);
+        let next_kind = next_affordable_tower(st);
+        let cost = next_kind.map(tower_build_cost).unwrap_or(i32::MAX);
         if st.gold >= cost && !invest {
             let free = |&(r, c): &(usize, usize)| !st.grid.blocked[r][c] && keeps_path_open(&st.grid.blocked, r, c);
             let next = bot_plan().into_iter().find(free)
                 .or_else(|| (2..ROWS - 1).rev().flat_map(|r| (0..COLS).map(move |c| (r, c))).find(free));
-            if let Some((r, c)) = next {
-                if try_build_random(me, r, c, &mut commands, &mut sides, &asset_server) { continue; }
+            if let (Some((r, c)), Some(kind)) = (next, next_kind) {
+                if try_build_kind(me, r, c, kind, &mut commands, &mut sides, &asset_server) { continue; }
             }
         }
 
@@ -105,7 +117,8 @@ pub fn bot_system(
         let st = sides.get_mut(me);
         // dokud nema dost vezi, posila jen z velkeho prebytku (2x cena stavby); pak z goldu nad cenou dalsi stavby,
         // pri investici az do poloviny goldu
-        let cost = build_cost(st.builds);
+        let next_kind = next_affordable_tower(st);
+        let cost = next_kind.map(tower_build_cost).unwrap_or(i32::MAX);
         let budget = if invest { st.gold / 2 } else if enough { st.gold - cost } else { st.gold - 2 * cost };
         if budget <= 0 { continue; }
         let pick = (1..=UNIT_COUNT).filter(|&k| get_unit_def(k).cost <= budget).max_by_key(|&k| get_unit_def(k).cost);
@@ -115,8 +128,7 @@ pub fn bot_system(
         let idx = (kind as usize).min(31);
         st.income.amount += def.income as f32 * income_multiplier(st.income.sent[idx]);
         st.income.sent[idx] += 1;
-        let (hp_mul, speed_mul) = barracks_buff(me, &all_towers);
-        spawn_sent_unit(&mut commands, &assets, &mut meshes, &mut materials, &asset_server, me.other(), kind, hp_mul, speed_mul);
+        spawn_sent_unit(&mut commands, &assets, &mut meshes, &mut materials, &asset_server, me.other(), kind, 1.0, 1.0);
         println!("Bot poslal {} za {}G (income {:.1})", def.name, def.cost, st.income.amount);
     }
 }

@@ -1,14 +1,132 @@
 
 use bevy::prelude::*;
-use crate::components::{Side, SwitchViewButton, Tower, Selling, UpgradeLabel, SellLabel, RangeRing, RangeRingNext, HoverHighlight, TowerLevelText, PauseButtonUI, BuildPreview, SendToggleButton, SendPanel, TowerActionPanel, UpgradeButton, SellButton, SelectionMarker, SafeRoot};
-use crate::resources::{HoverCell, SelectedCell, Sides, ViewSide, MatchOver, TowerDrag, KeyControl, WavePaused, HeldBuilding, PanelsOpen, InputPointer, SafeInsets};
-use crate::constants::{CELL, LANE_H, LANE_W, CAM_BASE_Y, tower_icon_path, MAX_TOWER_LEVEL, SELL_SECONDS, SELL_REFUND, BUILD_COST_STEP, ROWS, COLS};
-use rand::Rng;
+use crate::components::{Side, SwitchViewButton, Tower, Selling, UpgradeLabel, SellLabel, RangeRing, RangeRingNext, HoverHighlight, TowerLevelText, PauseButtonUI, BuildPreview, SendToggleButton, SendPanel, TowerActionPanel, UpgradeButton, SellButton, SelectionMarker, SafeRoot, BuildTowerButton, BuildTowerPanel};
+use crate::resources::{HoverCell, SelectedCell, Sides, ViewSide, MatchOver, TowerDrag, KeyControl, WavePaused, HeldBuilding, PanelsOpen, InputPointer, SafeInsets, Deck};
+use crate::constants::{CELL, LANE_H, LANE_W, CAM_BASE_Y, tower_icon_path, SELL_SECONDS, SELL_REFUND, ROWS, COLS};
 use crate::tower_def::get_tower_def;
 use crate::utils::{grid_to_world, world_to_grid, compute_path};
 
-// cena dalsi stavby: 10, 20, 30... az do stropu (podle toho, kolik vezi uz strana postavila)
-pub fn build_cost(builds: u32) -> i32 { (BUILD_COST_STEP * (builds as i32 + 1)).min(crate::constants::BUILD_COST_MAX) }
+pub fn tower_build_cost(kind: u8) -> i32 {
+    get_tower_def(kind, 1).gold
+}
+
+pub fn tower_upgrade_cost(kind: u8, level: u32) -> Option<i32> {
+    if level >= crate::constants::tower_rank_cap(kind) {
+        return None;
+    }
+    let multiplier = if crate::constants::is_special_tower(kind) {
+        match level {
+            1 => 0.80,
+            2 => 1.30,
+            _ => return None,
+        }
+    } else {
+        match level {
+            1 => 0.70,
+            2 => 0.90,
+            3 => 1.20,
+            4 => 1.55,
+            5 => 2.00,
+            6 => 2.60,
+            _ => return None,
+        }
+    };
+    Some((tower_build_cost(kind) as f32 * multiplier).round().max(1.0) as i32)
+}
+
+fn selected_build_kind(deck: &[u8], selected: Option<u8>) -> Option<u8> {
+    selected.filter(|kind| deck.contains(kind))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::resources::Sides;
+
+    #[derive(Resource, Default)]
+    struct BuildAttempt(Option<bool>);
+
+    fn attempt_special_build(
+        mut commands: Commands,
+        asset_server: Res<AssetServer>,
+        mut sides: ResMut<Sides>,
+        mut attempt: ResMut<BuildAttempt>,
+    ) {
+        attempt.0 = Some(try_build_kind(
+            Side::Player,
+            0,
+            0,
+            16,
+            &mut commands,
+            &mut sides,
+            &asset_server,
+        ));
+    }
+
+    #[test]
+    fn building_choice_must_be_in_the_selected_deck() {
+        assert_eq!(selected_build_kind(&[1, 4, 7], Some(4)), Some(4));
+        assert_eq!(selected_build_kind(&[1, 4, 7], Some(2)), None);
+        assert_eq!(selected_build_kind(&[1, 4, 7], None), None);
+    }
+
+    #[test]
+    fn basic_upgrades_cost_the_design_percentage_of_the_building_price() {
+        assert_eq!(tower_upgrade_cost(1, 1), Some(35));
+        assert_eq!(tower_upgrade_cost(1, 6), Some(130));
+        assert_eq!(tower_upgrade_cost(1, 7), None);
+    }
+
+    #[test]
+    fn special_upgrades_cost_eighty_and_one_hundred_thirty_percent_and_stop_at_rank_three() {
+        assert_eq!(tower_build_cost(16), 400);
+        assert_eq!(tower_upgrade_cost(16, 1), Some(320));
+        assert_eq!(tower_upgrade_cost(16, 2), Some(520));
+        assert_eq!(tower_upgrade_cost(16, 3), None);
+    }
+
+    #[test]
+    fn special_build_requires_and_spends_one_diamond_only_after_a_successful_build() {
+        let mut sides = Sides::default();
+        let player = sides.get_mut(Side::Player);
+        player.gold = 500;
+        player.deck = vec![16];
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(AssetPlugin::default())
+            .insert_resource(sides)
+            .insert_resource(BuildAttempt::default())
+            .add_systems(Update, attempt_special_build);
+
+        app.update();
+        assert_eq!(app.world().resource::<BuildAttempt>().0, Some(false));
+        assert_eq!(app.world().resource::<Sides>().get(Side::Player).gold, 500);
+        assert_eq!(app.world().resource::<Sides>().get(Side::Player).diamonds, 0);
+
+        app.world_mut().resource_mut::<Sides>().get_mut(Side::Player).diamonds = 1;
+        app.update();
+        assert_eq!(app.world().resource::<BuildAttempt>().0, Some(true));
+        assert_eq!(app.world().resource::<Sides>().get(Side::Player).gold, 100);
+        assert_eq!(app.world().resource::<Sides>().get(Side::Player).diamonds, 0);
+        assert!(app.world().resource::<Sides>().get(Side::Player).grid.blocked[0][0]);
+    }
+
+    #[test]
+    fn basic_and_special_towers_have_their_gdd_rank_caps() {
+        assert_eq!(crate::constants::tower_rank_cap(1), 7);
+        assert_eq!(crate::constants::tower_rank_cap(16), 3);
+    }
+
+    #[test]
+    fn starting_gold_covers_the_four_cheapest_basic_towers() {
+        let opening_cost: i32 = [2, 1, 3, 4]
+            .iter()
+            .map(|&kind| tower_build_cost(kind))
+            .sum();
+        assert!(opening_cost <= crate::constants::START_GOLD);
+    }
+}
 
 // postavi vez daneho druhu a ranku na policko (gold ani bludiste neresi, to dela volajici)
 pub fn spawn_tower(commands: &mut Commands, asset_server: &AssetServer, side: Side, kind: u8, rank: u32, row: usize, col: usize, invested: i32) {
@@ -22,7 +140,7 @@ pub fn spawn_tower(commands: &mut Commands, asset_server: &AssetServer, side: Si
     commands.spawn((
         sprite,
         Transform::from_xyz(pos.x, pos.y, 5.0),
-        Tower { side, damage_min: def.dmg_min, damage_max: def.dmg_max, range: def.range, fire_rate, cooldown: 0.0, kind, col, row, level: rank, splash: def.splash, slow_per_hit: def.slow_per, slow_max: def.slow_max, push_chance: def.push_chance, push_dist: def.push_dist, dot_dps: def.dot_dps, dot_duration: def.dot_dur, chain_targets: def.chain, hit_count: 0, invested },
+        Tower { side, damage_min: def.dmg_min, damage_max: def.dmg_max, range: def.range, fire_rate, cooldown: 0.0, kind, col, row, level: rank, splash: def.splash, slow_per_hit: def.slow_per, slow_max: def.slow_max, push_chance: def.push_chance, push_dist: def.push_dist, dot_dps: def.dot_dps, dot_duration: def.dot_dur, chain_targets: def.chain, hit_count: 0, last_ability_wave: 0, ability_used_match: false, dj_drop_timer: 10.0, invested },
     )).with_children(|p| {
         p.spawn((Text2d::new(format!("R{}", rank)), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE), Transform::from_xyz(0.0, -18.0, 1.0), TowerLevelText));
         // vez bez ikony: zkratka nazvu doprostred ctverecku, at se daji rozeznat
@@ -32,15 +150,14 @@ pub fn spawn_tower(commands: &mut Commands, asset_server: &AssetServer, side: Si
     });
 }
 
-// stavba: nahodna vez ranku 1 z balicku strany na volne policko; zaplati se cena dalsi stavby
-// (stavba muze zablokovat cestu - creepy pak stoji pred zdi, dokud hlidac nezboura vez v ceste)
-pub fn try_build_random(side: Side, row: usize, col: usize, commands: &mut Commands, sides: &mut Sides, asset_server: &AssetServer) -> bool {
+pub fn try_build_kind(side: Side, row: usize, col: usize, kind: u8, commands: &mut Commands, sides: &mut Sides, asset_server: &AssetServer) -> bool {
     let st = sides.get_mut(side);
-    if row >= ROWS || col >= COLS || st.grid.blocked[row][col] || st.deck.is_empty() { return false; }
-    let cost = build_cost(st.builds);
-    if st.gold < cost { return false; }
-    let kind = st.deck[rand::thread_rng().gen_range(0..st.deck.len())];
+    if row >= ROWS || col >= COLS || st.grid.blocked[row][col] || !st.deck.contains(&kind) { return false; }
+    let cost = tower_build_cost(kind);
+    let diamond_cost = i32::from(crate::constants::is_special_tower(kind));
+    if st.gold < cost || st.diamonds < diamond_cost { return false; }
     st.gold -= cost;
+    st.diamonds -= diamond_cost;
     st.builds += 1;
     st.grid.blocked[row][col] = true;
     st.path.dist = compute_path(&st.grid.blocked);
@@ -56,24 +173,17 @@ impl TowerRef {
     pub fn of(e: Entity, t: &Tower) -> Self { Self { e, kind: t.kind, rank: t.level, row: t.row, col: t.col, invested: t.invested } }
 }
 
-// spojeni: dve stejne veze stejneho ranku (pod max) -> na miste `to` vznikne NAHODNA vez z balicku o rank vyssi,
+// spojeni: dve stejne veze stejneho ranku (pod max) -> na miste `to` zustane stejna vez o rank vyssi,
 // policko `from` se uvolni (zmeni se bludiste). Jine veze se nespoji a nic se nestane.
 pub fn try_merge(commands: &mut Commands, asset_server: &AssetServer, sides: &mut Sides, side: Side, from: TowerRef, to: TowerRef) -> bool {
-    if from.e == to.e || from.kind != to.kind || from.rank != to.rank || from.rank >= MAX_TOWER_LEVEL { return false; }
+    if from.e == to.e || from.kind != to.kind || from.rank != to.rank || from.rank >= crate::constants::tower_rank_cap(from.kind) { return false; }
     let st = sides.get_mut(side);
-    if st.deck.is_empty() { return false; }
-    let kind = st.deck[rand::thread_rng().gen_range(0..st.deck.len())];
+    let kind = to.kind;
     commands.entity(from.e).despawn_recursive();
     commands.entity(to.e).despawn_recursive();
     spawn_tower(commands, asset_server, side, kind, to.rank + 1, to.row, to.col, from.invested + to.invested);
-    if from.kind == crate::special::TWIN {
-        // TWIN: na puvodnim miste zustane nova nahodna vez R1 z balicku (2x R1 -> R2 + R1), bludiste se nemeni
-        let left = st.deck[rand::thread_rng().gen_range(0..st.deck.len())];
-        spawn_tower(commands, asset_server, side, left, 1, from.row, from.col, 0);
-    } else {
-        st.grid.blocked[from.row][from.col] = false;
-        st.path.dist = compute_path(&st.grid.blocked);
-    }
+    st.grid.blocked[from.row][from.col] = false;
+    st.path.dist = compute_path(&st.grid.blocked);
     println!("{:?} spojil 2x R{} -> {} R{} na [{},{}]", side, to.rank, kind, to.rank + 1, to.col, to.row);
     true
 }
@@ -134,21 +244,113 @@ pub fn selling_system(
     }
 }
 
-// tlacitko POSTAVIT (dole uprostred): na vybranem prazdnem policku postavi nahodnou vez z balicku
+// tlacitko na prazdnem policku postavi zvolenou vez; na vezi koupi dalsi rank
 pub fn build_button_input(
     mut commands: Commands,
     mut sides: ResMut<Sides>,
     selected_cell: Res<SelectedCell>,
+    held: Res<HeldBuilding>,
+    deck: Res<Deck>,
     asset_server: Res<AssetServer>,
     over: Res<MatchOver>,
-    q_towers: Query<&Tower>,
+    q_towers: Query<(Entity, &Tower, &Children, Has<Selling>)>,
+    mut q_sprites: Query<&mut Sprite, With<Tower>>,
+    mut q_level_text: Query<&mut Text2d, With<TowerLevelText>>,
     q_btn: Query<&Interaction, (Changed<Interaction>, With<UpgradeButton>)>,
 ) {
     if !q_btn.iter().any(|i| *i == Interaction::Pressed) || over.0.is_some() { return; }
     let Some((row, col)) = selected_cell.0 else { return; };
-    if q_towers.iter().any(|t| t.side == Side::Player && t.row == row && t.col == col) { return; }
-    try_build_random(Side::Player, row, col, &mut commands, &mut sides, &asset_server);
-    // policko zustava vybrane: tlacitko se prepne na PRODAT
+    let tower = q_towers.iter().find(|(_, t, _, _)| t.side == Side::Player && t.row == row && t.col == col);
+    let Some((kind, next_rank, invested, cooldown, hit_count, last_ability_wave, ability_used_match, dj_drop_timer, entity, children)) = tower.map(|(e, t, children, selling)| {
+        if selling { return (0, 0, 0, 0.0, 0, 0, false, 10.0, Entity::PLACEHOLDER, children); }
+        (t.kind, t.level + 1, t.invested, t.cooldown, t.hit_count, t.last_ability_wave, t.ability_used_match, t.dj_drop_timer, e, children)
+    }) else {
+        let Some(kind) = selected_build_kind(&deck.0, held.0) else { return; };
+        try_build_kind(Side::Player, row, col, kind, &mut commands, &mut sides, &asset_server);
+        return;
+    };
+    if entity == Entity::PLACEHOLDER { return; }
+    let Some(cost) = tower_upgrade_cost(kind, next_rank - 1) else { return; };
+    let st = sides.get_mut(Side::Player);
+    if st.gold < cost { return; }
+    st.gold -= cost;
+    let def = get_tower_def(kind, next_rank);
+    commands.entity(entity).insert(Tower {
+        side: Side::Player,
+        damage_min: def.dmg_min,
+        damage_max: def.dmg_max,
+        range: def.range,
+        fire_rate: 1.0 / def.interval.max(0.1),
+        cooldown,
+        kind,
+        col,
+        row,
+        level: next_rank,
+        splash: def.splash,
+        slow_per_hit: def.slow_per,
+        slow_max: def.slow_max,
+        push_chance: def.push_chance,
+        push_dist: def.push_dist,
+        dot_dps: def.dot_dps,
+        dot_duration: def.dot_dur,
+        chain_targets: def.chain,
+        hit_count,
+        last_ability_wave,
+        ability_used_match,
+        dj_drop_timer,
+        invested: invested + cost,
+    });
+    if let Ok(mut sprite) = q_sprites.get_mut(entity) {
+        if tower_icon_path(kind).is_none() {
+            sprite.color = def.color;
+        }
+    }
+    for &child in children.iter() {
+        if let Ok(mut text) = q_level_text.get_mut(child) {
+            text.0 = format!("R{}", next_rank);
+        }
+    }
+    println!("Vylepseni {:?} veze {} na R{} za {}G", Side::Player, kind, next_rank, cost);
+}
+
+pub fn build_choice_input_system(
+    mut held: ResMut<HeldBuilding>,
+    deck: Res<Deck>,
+    view: Res<ViewSide>,
+    over: Res<MatchOver>,
+    choices: Query<(&Interaction, &BuildTowerButton), Changed<Interaction>>,
+) {
+    if view.0 != Side::Player || over.0.is_some() { return; }
+    for (interaction, choice) in &choices {
+        if *interaction == Interaction::Pressed {
+            held.0 = selected_build_kind(&deck.0, Some(choice.0));
+        }
+    }
+}
+
+pub fn build_choice_display_system(
+    selected_cell: Res<SelectedCell>,
+    view: Res<ViewSide>,
+    held: Res<HeldBuilding>,
+    panels: Res<PanelsOpen>,
+    towers: Query<&Tower>,
+    mut panel: Query<&mut Node, With<BuildTowerPanel>>,
+    mut choices: Query<(&BuildTowerButton, &mut BackgroundColor), Without<BuildTowerPanel>>,
+) {
+    let empty_cell = selected_cell.0.map_or(false, |(row, col)| {
+        !towers.iter().any(|tower| tower.side == Side::Player && tower.row == row && tower.col == col)
+    });
+    let show = view.0 == Side::Player && empty_cell && !panels.send;
+    for mut node in &mut panel {
+        node.display = if show { Display::Flex } else { Display::None };
+    }
+    for (choice, mut color) in &mut choices {
+        color.0 = if held.0 == Some(choice.0) {
+            Color::srgb(0.55, 0.43, 0.12)
+        } else {
+            Color::srgb(0.18, 0.18, 0.2)
+        };
+    }
 }
 
 // jeden ukazatel pro mys i dotyk (dotyk ma prednost); "pressed" = prave stisknuto / klepnuto
@@ -243,17 +445,49 @@ pub fn panels_input_system(
     keys: Res<ButtonInput<KeyCode>>,
     q_s: Query<&Interaction, (Changed<Interaction>, With<SendToggleButton>)>,
     mut panels: ResMut<PanelsOpen>,
+    selected: Res<SelectedCell>,
+    view: Res<ViewSide>,
+    q_towers: Query<&Tower>,
 ) {
     let s_clicked = q_s.iter().any(|i| *i == Interaction::Pressed);
-    if keys.just_pressed(KeyCode::KeyS) || s_clicked { panels.send = !panels.send; }
+    // klavesa S na vlastni vezi = prodej (resi keyboard_cursor_system), jinak panel jednotek
+    let on_tower = view.0 == Side::Player && selected.0.map_or(false, |(r, c)| q_towers.iter().any(|t| t.side == Side::Player && t.row == r && t.col == c));
+    if (keys.just_pressed(KeyCode::KeyS) && !on_tower) || s_clicked { panels.send = !panels.send; }
 }
 
-// zobrazeni panelu S a tlacitek dole uprostred: prazdne vybrane policko = POSTAVIT (s cenou), vez = PRODAT
+// okno potvrzeni prodeje: ukazat / skryt, text s cenou, kliknuti na ANO / NE
+pub fn sell_confirm_ui_system(
+    mut commands: Commands,
+    mut kc: ResMut<KeyControl>,
+    q_towers: Query<(Entity, &Tower), Without<Selling>>,
+    mut q_root: Query<&mut Node, With<crate::components::SellConfirmRoot>>,
+    mut q_text: Query<&mut Text, With<crate::components::SellConfirmText>>,
+    q_yes: Query<&Interaction, (Changed<Interaction>, With<crate::components::SellYesButton>)>,
+    q_no: Query<&Interaction, (Changed<Interaction>, With<crate::components::SellNoButton>)>,
+) {
+    let tower = kc.sell_confirm.and_then(|(r, c)| q_towers.iter().find(|(_, t)| t.side == Side::Player && t.row == r && t.col == c));
+    if kc.sell_confirm.is_some() && tower.is_none() { kc.sell_confirm = None; } // vez mezitim zmizela
+    let show = tower.is_some();
+    for mut n in q_root.iter_mut() { let d = if show { Display::Flex } else { Display::None }; if n.display != d { n.display = d; } }
+    let Some((e, t)) = tower else { return; };
+    let name = crate::constants::ALL_TOWERS.iter().find(|x| x.0 == t.kind).map_or("?", |x| x.1);
+    let s = format!("Prodat {} R{} za +{}G?", name, t.level, sell_price(t.invested));
+    for mut txt in q_text.iter_mut() { if txt.0 != s { txt.0 = s.clone(); } }
+    if q_yes.iter().any(|i| *i == Interaction::Pressed) {
+        commands.entity(e).try_insert(Selling { timer: Timer::from_seconds(SELL_SECONDS, TimerMode::Once) });
+        kc.sell_confirm = None;
+    } else if q_no.iter().any(|i| *i == Interaction::Pressed) {
+        kc.sell_confirm = None;
+    }
+}
+
+// zobrazeni panelu S a tlacitek: prazdne policko = POSTAVIT, vez = UPGRADE / PRODAT
 pub fn panels_display_system(
     panels: Res<PanelsOpen>,
     sides: Res<Sides>,
     selected_cell: Res<SelectedCell>,
-    kc: Res<KeyControl>,
+    held: Res<HeldBuilding>,
+    deck: Res<Deck>,
     q_towers: Query<(&Tower, Has<Selling>)>,
     mut q_send: Query<&mut Node, (With<SendPanel>, Without<TowerActionPanel>, Without<UpgradeButton>, Without<SellButton>)>,
     mut q_action: Query<&mut Node, (With<TowerActionPanel>, Without<SendPanel>, Without<UpgradeButton>, Without<SellButton>)>,
@@ -266,23 +500,37 @@ pub fn panels_display_system(
     let show = |open: bool| if open { Display::Flex } else { Display::None };
     for mut n in q_send.iter_mut() { n.display = show(panels.send); }
     for mut n in q_action.iter_mut() { n.display = show(selected_cell.0.is_some() && !panels.send); }
-    let Some((r, c)) = selected_cell.0 else { return; };
-    let tower = q_towers.iter().find(|(t, _)| t.side == Side::Player && t.row == r && t.col == c).map(|(t, s)| (t.invested, s));
-    for (_, mut n) in q_up_btn.iter_mut() { n.display = show(tower.is_none()); }
+    let tower = selected_cell.0.and_then(|(r, c)| {
+        q_towers.iter().find(|(t, _)| t.side == Side::Player && t.row == r && t.col == c)
+    });
+    for (_, mut n) in q_up_btn.iter_mut() { n.display = show(selected_cell.0.is_some() && !panels.send); }
     for (_, mut n) in q_sell_btn.iter_mut() { n.display = show(tower.is_some()); }
     match tower {
         None => {
-            // POSTAVIT: cena dalsi stavby, ztmavene bez penez
-            let cost = build_cost(st.builds);
-            let armed = kc.build_armed == Some((r, c));
-            let up = if armed { format!("ENTER =\nPOSTAVIT\n{}G", cost) } else { format!("POSTAVIT\n{}G", cost) };
+            let kind = selected_build_kind(&deck.0, held.0);
+            let cost = kind.map(tower_build_cost);
+            let up = match (kind, cost) {
+                (Some(kind), Some(cost)) => format!("POSTAVIT\n{}\n{}G", crate::constants::tower_tag(kind), cost),
+                _ => "VYBER VEZ".to_string(),
+            };
             for mut t in q_up_label.iter_mut() { if t.0 != up { t.0 = up.clone(); } }
-            let col = if armed { Color::srgb(0.85, 0.7, 0.1) } else if st.gold >= cost { Color::srgb(0.15, 0.6, 0.2) } else { Color::srgb(0.07, 0.15, 0.08) };
+            let col = if cost.map_or(false, |cost| st.gold >= cost) { Color::srgb(0.15, 0.6, 0.2) } else { Color::srgb(0.07, 0.15, 0.08) };
             for (mut bg, _) in q_up_btn.iter_mut() { if bg.0 != col { bg.0 = col; } }
         }
-        Some((invested, selling)) => {
-            // PRODAT -> pri prodeji se zmeni na ZRUSIT
-            let sell = if selling { "ZRUSIT\nPRODEJ".to_string() } else { format!("PRODAT\n+{}G\n({:.0}s)", sell_price(invested), SELL_SECONDS) };
+        Some((tower, selling)) => {
+            let upgrade = tower_upgrade_cost(tower.kind, tower.level)
+                .map(|cost| format!("UPGRADE\nR{}\n{}G", tower.level + 1, cost))
+                .unwrap_or_else(|| format!("MAX\nR{}", crate::constants::tower_rank_cap(tower.kind)));
+            for mut t in q_up_label.iter_mut() { if t.0 != upgrade { t.0 = upgrade.clone(); } }
+            let upgrade_cost = tower_upgrade_cost(tower.kind, tower.level);
+            let upgrade_color = if upgrade_cost.map_or(false, |cost| st.gold >= cost) {
+                Color::srgb(0.15, 0.6, 0.2)
+            } else {
+                Color::srgb(0.07, 0.15, 0.08)
+            };
+            for (mut bg, _) in q_up_btn.iter_mut() { if bg.0 != upgrade_color { bg.0 = upgrade_color; } }
+
+            let sell = if selling { "ZRUSIT\nPRODEJ".to_string() } else { format!("PRODAT\n+{}G\n({:.0}s)", sell_price(tower.invested), SELL_SECONDS) };
             for mut t in q_sell_label.iter_mut() { if t.0 != sell { t.0 = sell.clone(); } }
             let col = if selling { Color::srgb(0.8, 0.55, 0.1) } else { Color::srgb(0.75, 0.2, 0.15) };
             for (mut bg, _) in q_sell_btn.iter_mut() { if bg.0 != col { bg.0 = col; } }
@@ -312,7 +560,7 @@ pub fn range_rings_system(
             ring = Some((tf.translation.truncate(), tower.range));
             ring_kind = tower.kind;
             let hovering_up = q_up_btn.iter().any(|i| *i != Interaction::None);
-            if hovering_up && tower.level < MAX_TOWER_LEVEL { next = Some(get_tower_def(tower.kind, tower.level + 1).range); }
+            if hovering_up && tower.level < crate::constants::tower_rank_cap(tower.kind) { next = Some(get_tower_def(tower.kind, tower.level + 1).range); }
         }
     }
     for (mut tf, mut vis, mat) in q_ring.iter_mut() {
@@ -521,7 +769,7 @@ pub fn switch_view_system(
     // na lajne soupere se nestavi: zrusit drzenou budovu, vyber a stavebni nabidku
     drag.from = None;
     kc.carry = None;
-    kc.build_armed = None;
+    kc.sell_confirm = None;
     if view.0 != Side::Player {
         held.0 = None;
         selected.0 = None;
@@ -608,13 +856,15 @@ pub fn tower_drag_system(
         let find = |cell: (usize, usize)| q_towers.iter().find(|(_, t, _)| t.side == Side::Player && t.row == cell.0 && t.col == cell.1).map(|(e, t, _)| TowerRef::of(e, t));
         if let (Some(a), Some(b)) = (find(from), find(target)) {
             if !try_merge(&mut commands, &asset_server, &mut sides, Side::Player, a, b) {
-                println!("Tyhle veze se spojit nedaji (musi byt stejny druh a rank, max R{})", MAX_TOWER_LEVEL);
+                println!("Tyhle veze se spojit nedaji (musi byt stejny druh a rank, max R{})", crate::constants::tower_rank_cap(a.kind));
             }
         }
     }
 }
 
-// KLAVESNICE: sipky posouvaji vybrane policko (vzdy nejake je), Enter stavi / bere a spojuje veze, Esc rusi
+// KLAVESNICE: sipky posouvaji vybrane policko (vzdy nejake je), Shift+sipky posouvaji o 2 policka,
+// Enter stavi / bere a spojuje veze,
+// S na vezi otevre okno prodeje (Enter = ano, Esc = ne), Esc rusi
 pub fn keyboard_cursor_system(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
@@ -622,6 +872,8 @@ pub fn keyboard_cursor_system(
     mut kc: ResMut<KeyControl>,
     mut sides: ResMut<Sides>,
     mut panels: ResMut<PanelsOpen>,
+    held: Res<HeldBuilding>,
+    deck: Res<Deck>,
     asset_server: Res<AssetServer>,
     view: Res<ViewSide>,
     over: Res<MatchOver>,
@@ -630,8 +882,19 @@ pub fn keyboard_cursor_system(
     mut q_ghost: Query<(&mut Transform, &mut Visibility, &mut Sprite), (With<BuildPreview>, Without<Tower>)>,
 ) {
     if view.0 != Side::Player || over.0.is_some() {
-        kc.build_armed = None;
         kc.carry = None;
+        kc.sell_confirm = None;
+    } else if let Some(cell) = kc.sell_confirm {
+        // otevrene okno prodeje: Enter = prodat (spusti odpocet prodeje), Esc = nechat; nic jineho nejde
+        let enter = keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter);
+        if enter {
+            if let Some((e, _, _)) = q_towers.iter().find(|(_, t, _)| t.side == Side::Player && t.row == cell.0 && t.col == cell.1) {
+                commands.entity(e).try_insert(Selling { timer: Timer::from_seconds(SELL_SECONDS, TimerMode::Once) });
+            }
+            kc.sell_confirm = None;
+        } else if keys.just_pressed(KeyCode::Escape) {
+            kc.sell_confirm = None;
+        }
     } else {
         let tower_at = |cell: (usize, usize)| q_towers.iter().find(|(_, t, _)| t.side == Side::Player && t.row == cell.0 && t.col == cell.1);
         // nesena vez mezitim zmizela (prodej, hlidac) -> zrusit
@@ -639,10 +902,11 @@ pub fn keyboard_cursor_system(
 
         // sipky: radek 0 je dole (cil), nahoru = vyssi radek
         let mut d: (i32, i32) = (0, 0);
-        if keys.just_pressed(KeyCode::ArrowUp) { d.0 += 1; }
-        if keys.just_pressed(KeyCode::ArrowDown) { d.0 -= 1; }
-        if keys.just_pressed(KeyCode::ArrowLeft) { d.1 -= 1; }
-        if keys.just_pressed(KeyCode::ArrowRight) { d.1 += 1; }
+        let step = if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) { 2 } else { 1 };
+        if keys.just_pressed(KeyCode::ArrowUp) { d.0 += step; }
+        if keys.just_pressed(KeyCode::ArrowDown) { d.0 -= step; }
+        if keys.just_pressed(KeyCode::ArrowLeft) { d.1 -= step; }
+        if keys.just_pressed(KeyCode::ArrowRight) { d.1 += step; }
         if d != (0, 0) {
             let (r, c) = selected.0.unwrap_or((ROWS / 2, COLS / 2));
             let r = (r as i32 + d.0).clamp(0, ROWS as i32 - 1) as usize;
@@ -650,7 +914,11 @@ pub fn keyboard_cursor_system(
             selected.0 = Some((r, c));
             panels.send = false;
         }
-        if keys.just_pressed(KeyCode::Escape) { kc.build_armed = None; kc.carry = None; }
+        if keys.just_pressed(KeyCode::Escape) { kc.carry = None; }
+        // S na vlastni vezi = prodat (nejdriv okno ANO / NE); jinde S otevira panel jednotek (panels_input_system)
+        if keys.just_pressed(KeyCode::KeyS) && kc.carry.is_none() {
+            if let Some(cell) = selected.0 { if tower_at(cell).is_some() { kc.sell_confirm = Some(cell); } }
+        }
 
         if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter) {
             match selected.0 {
@@ -663,19 +931,15 @@ pub fn keyboard_cursor_system(
                             if try_merge(&mut commands, &asset_server, &mut sides, Side::Player, TowerRef::of(ea, ta), TowerRef::of(eb, tb)) { kc.carry = None; }
                         }
                     } else if tower_at(cell).is_some() {
-                        kc.build_armed = None;
-                        kc.carry = Some(cell); // vzit vez
-                    } else if kc.build_armed == Some(cell) {
-                        try_build_random(Side::Player, cell.0, cell.1, &mut commands, &mut sides, &asset_server); // druhy Enter = postavit
-                        kc.build_armed = None;
+                        kc.carry = Some(cell); // vzit vez (rezim spojovani)
                     } else {
-                        kc.build_armed = Some(cell); // prvni Enter = pripravit POSTAVIT
+                        if let Some(kind) = selected_build_kind(&deck.0, held.0) {
+                            try_build_kind(Side::Player, cell.0, cell.1, kind, &mut commands, &mut sides, &asset_server);
+                        }
                     }
                 }
             }
         }
-        // priprava stavby plati jen pro policko, na kterem vznikla
-        if kc.build_armed.is_some() && kc.build_armed != selected.0 { kc.build_armed = None; }
     }
 
     // duch nesene veze na vybranem policku (pri tahu mysi ducha ridi tower_drag_system)

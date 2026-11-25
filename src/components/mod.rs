@@ -36,6 +36,9 @@ pub struct Tower {
     pub dot_duration: f32,
     pub chain_targets: u32,
     pub hit_count: u32,
+    pub last_ability_wave: u32,
+    pub ability_used_match: bool,
+    pub dj_drop_timer: f32,
     pub invested: i32, // kolik goldu stalo vsechno, co se do veze spojilo (pro prodej)
 }
 
@@ -44,6 +47,7 @@ pub struct Tower {
 pub struct Creep {
     pub is_boss: bool,
     pub is_mega: bool,
+    pub max_hp_reductions: u8,
     pub base_radius: f32,
     pub speed_mul: f32, // nasobek rychlosti chuze (1.0 = bezna)
     pub leak_cost: u32, // kolik zivotu stoji, kdyz projde (normalni 1, vetsi 2, boss vic)
@@ -57,6 +61,11 @@ pub struct Creep {
 pub struct Bullet {
     pub active: bool, // false = volny slot v poolu strel
     pub damage: f32,
+    pub shot_count: u32,
+    pub owner_side: Option<Side>,
+    pub owner_row: u8,
+    pub owner_col: u8,
+    pub wave: u32,
     pub vel: Vec2,
     pub life: Timer,
     pub aoe: f32,
@@ -79,7 +88,8 @@ pub struct Bullet {
 #[derive(Component)] pub struct SlowDebuff { pub timer: Timer, pub factor: f32 }
 #[derive(Component)] pub struct BurnDebuff { pub timer: Timer, pub tick: Timer, pub dps: f32, pub level: u32 } // level veze (pro efekty)
 #[derive(Component)] pub struct StunDebuff { pub timer: Timer }
-#[derive(Component)] pub struct PoisonDebuff { pub timer: Timer, pub tick: Timer, pub dps: f32, pub level: u32 }
+#[derive(Component)] pub struct PoisonDebuff { pub timer: Timer, pub tick: Timer, pub dps: f32, pub level: u32, pub stacks: u8 }
+#[derive(Component)] pub struct DeathExplosion { pub damage: f32, pub radius: f32 }
 #[derive(Component)] pub struct DamageNumber { pub timer: Timer, pub vel: Vec2, pub active: bool }
 
 // UI
@@ -88,6 +98,14 @@ pub struct Bullet {
 #[derive(Component)] pub struct WaveText;
 #[derive(Component)] pub struct WaveTimerText;
 #[derive(Component)] pub struct PauseButtonUI;
+#[derive(Component)] pub struct PauseMenuRoot;
+#[derive(Component)] pub struct PauseOptionsRoot;
+#[derive(Component)] pub struct PauseConfirmRoot;
+#[derive(Component)] pub struct PauseConfirmText;
+#[derive(Component)] pub struct PauseMenuButton(pub crate::menu::PauseAction);
+#[derive(Component)] pub struct PauseResumeButton;
+#[derive(Component)] pub struct PauseConfirmYesButton;
+#[derive(Component)] pub struct PauseConfirmNoButton;
 #[derive(Component)] pub struct BuildPreview;
 #[derive(Component)] pub struct HoverHighlight;
 #[derive(Component)] pub struct GridLine;
@@ -112,6 +130,8 @@ pub struct Bullet {
 #[derive(Component)] pub struct SendPanelItem(pub u8);
 #[derive(Component)] pub struct SentUnit { pub cost: i32 } // cena jednotky (pro bonus za projiti)
 #[derive(Component)] pub struct IncomeText;
+#[derive(Component)] pub struct BuildTowerPanel;
+#[derive(Component)] pub struct BuildTowerButton(pub u8);
 
 // UPGRADE / PRODAT: popisky tlacitek a probihajici prodej veze
 #[derive(Component)] pub struct UpgradeLabel;
@@ -147,12 +167,15 @@ pub struct Bullet {
 // panel se staty vybrane veze (nad tlacitky dole uprostred)
 #[derive(Component)] pub struct TowerInfoPanel;
 #[derive(Component)] pub struct TowerInfoText;
+// okno potvrzeni prodeje (ANO = Enter, NE = Esc)
+#[derive(Component)] pub struct SellConfirmRoot;
+#[derive(Component)] pub struct SellConfirmText;
+#[derive(Component)] pub struct SellYesButton;
+#[derive(Component)] pub struct SellNoButton;
 
 // === znacky od specialnich vezi ===
 // Curse: creep dostava o `mul` vic poskozeni a nefunguje mu leceni ani aura
 #[derive(Component)] pub struct Cursed { pub mul: f32, pub timer: Timer }
-// Voodoo: cast poskozeni, ktere creep dostane, se prenese na creepy v okruhu
-#[derive(Component)] pub struct VoodooMark { pub share: f32, pub timer: Timer }
 // Illusion: creep jde smerem `dir`, dokud neujde `remaining` (nebo nenarazi)
 #[derive(Component)] pub struct Confused { pub dir: Vec2, pub remaining: f32 }
 

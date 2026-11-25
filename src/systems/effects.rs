@@ -1,15 +1,11 @@
 use bevy::prelude::*;
 use rand::Rng;
-use std::collections::HashMap;
-use crate::components::{Tower, Creep, SlowDebuff, BurnDebuff, PoisonDebuff};
+use crate::components::{Creep, BurnDebuff, PoisonDebuff};
 
 // =====================================================================
 // TABULKY EFEKTU - vsechno k ladeni je tady nahore
 // =====================================================================
 
-const FROST_KIND: u8 = 3;                          // druh veze Frost (viz tower_def.rs)
-const FROST_TARGETS: [usize; 5] = [3, 4, 5, 6, 7]; // kolik jednotek freeznou veze Frost level 1..5
-const FREEZE_SECS: f32 = 2.5;                      // delka freeze (kruh se za tu dobu zmensi 100 % -> 0 %)
 const PARTICLE_POOL_SIZE: usize = 80;              // max castic naraz (ochrana FPS na mobilu)
 
 // intenzita castic podle levelu veze 1..5: prumerne sekundy mezi dvema casticemi na jednom kolecku (mensi = vic)
@@ -77,46 +73,6 @@ pub fn setup_particle_pool(mut commands: Commands, mut pool: ResMut<ParticlePool
             Particle::idle(),
         )).id();
         pool.free.push(e);
-    }
-}
-
-// =====================================================================
-// FREEZE - veze Frost pri kazdem vystrelu zpomali N nejblizsich jednotek, ktere jeste slow nemaji
-// =====================================================================
-
-pub fn freeze_system(
-    mut commands: Commands,
-    mut seen: Local<HashMap<Entity, u32>>,   // posledni videny hit_count veze (zmena = veze vystrelila)
-    mut cand: Local<Vec<(Entity, f32)>>,     // znovupouzity buffer kandidatu (zadna alokace za snimek)
-    towers: Query<(Entity, &Transform, &Tower), Without<Creep>>,
-    creeps: Query<(Entity, &Transform, Has<SlowDebuff>), (With<Creep>, Without<Tower>)>,
-    resists: Query<&crate::components::Resist>,
-) {
-    for (t_ent, t_tf, tower) in towers.iter() {
-        if tower.kind != FROST_KIND { continue; }
-        let last = seen.entry(t_ent).or_insert(tower.hit_count);
-        if *last == tower.hit_count { continue; }
-        *last = tower.hit_count;
-
-        let t_pos = t_tf.translation.truncate();
-        let range2 = tower.range * tower.range;
-        cand.clear();
-        for (c_ent, c_tf, slowed) in creeps.iter() {
-            if slowed { continue; } // uz zpomalene preskocit -> cil je dalsi v rade
-            let d2 = t_pos.distance_squared(c_tf.translation.truncate());
-            if d2 < range2 { cand.push((c_ent, d2)); }
-        }
-        cand.sort_by(|a, b| a.1.total_cmp(&b.1)); // nejblizsi veze prvni
-
-        let n = FROST_TARGETS[(tower.level as usize).clamp(1, 5) - 1];
-        let factor = 1.0 - tower.slow_per_hit.clamp(0.0, tower.slow_max);
-        for &(c_ent, _) in cand.iter().take(n) {
-            // get_entity: creep mohl byt mezitim despawnuty
-            if let Some(mut ec) = commands.get_entity(c_ent) {
-                let f = 1.0 - (1.0 - factor) * (1.0 - resists.get(c_ent).map_or(0.0, |r| r.slow)); // odolnost zmensi silu slow (Ogre 20 %)
-                ec.try_insert(SlowDebuff { timer: Timer::from_seconds(FREEZE_SECS, TimerMode::Once), factor: f });
-            }
-        }
     }
 }
 
@@ -190,11 +146,17 @@ pub fn particle_update_system(
 // STUN podle druhu veze a levelu 1..5: (sance, sekundy) - zatim jen Shock Turret
 // =====================================================================
 
-const SHOCK_KIND: u8 = 7;
-const SHOCK_STUN: [(f32, f32); 5] = [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.25, 1.0)];
+const SHOCK_KIND: u8 = crate::special::TESLA;
+const SHOCK_STUN: [(f32, f32); 7] = [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (0.15, 0.5)];
 
 pub fn stun_for(kind: u8, level: u32) -> (f32, f32) {
-    if kind == SHOCK_KIND { SHOCK_STUN[(level as usize).clamp(1, 5) - 1] } else { (0.0, 0.0) }
+    if kind == crate::special::BRAMBOROMET && level >= 7 {
+        (0.15, 0.5)
+    } else if kind == SHOCK_KIND {
+        SHOCK_STUN[(level as usize).clamp(1, 7) - 1]
+    } else {
+        (0.0, 0.0)
+    }
 }
 
 // =====================================================================

@@ -34,15 +34,17 @@ pub fn main() {
         .add_systems(Startup, spawn_camera)
         .add_systems(Startup, autoplay_system)
         .add_systems(Update, dev_screenshot_system.run_if(in_state(AppState::Playing)))
+        .add_systems(Update, sell_confirm_ui_system.after(keyboard_cursor_system).run_if(in_state(AppState::Playing)))
         .add_systems(OnEnter(AppState::Menu), spawn_menu)
         .add_systems(OnExit(AppState::Menu), despawn_menu)
         .add_systems(Update, menu_button_system.run_if(in_state(AppState::Menu)))
+        .add_systems(OnEnter(AppState::Restarting), start_restarted_game)
         .insert_resource(RoundState::default())
         .insert_resource(MatchOver::default())
         .insert_resource(WavePaused(false))
+        .insert_resource(PendingPauseAction::default())
         .insert_resource(Sides::default())
         .insert_resource(ViewSide(Side::Player))
-        .insert_resource(Diamonds(0))
         .insert_resource(WaveCount(0))
         .insert_resource(InputPointer::default())
         .insert_resource(HoverCell(None))
@@ -81,18 +83,19 @@ pub fn main() {
             send_unit_system,
             income_system,
             selling_system,
-            freeze_system,
             particle_spawn_system,
             particle_update_system.after(particle_spawn_system),
             bolt_update_system,
             send_panel_scroll_system,
             ignite_visual_system,
         ).run_if(in_state(AppState::Playing)))
+        .add_systems(Update, (build_choice_input_system, build_choice_display_system).run_if(in_state(AppState::Playing)))
         .add_systems(Update, (
             tower_shoot,
             move_bullets,
             move_creeps_maze,
             build_creep_grid.after(move_creeps_maze).before(bullet_hit), // mrizka creepu pred zasahy
+            dj_drop_system.after(build_creep_grid),
             bullet_hit,
             update_debuffs,
             despawn_dead_and_count,
@@ -116,7 +119,7 @@ pub fn main() {
             tower_slow_system,
             camera_gesture_system,
             shimmer_system,
-            guardian_snipe_system,
+            guardian_dispatch_system,
             selection_marker_system,
             safe_area_system,
             cheat_button_system,
@@ -126,11 +129,11 @@ pub fn main() {
             game_over_button_system,
             tower_drag_system,
             bot_system,
-            special_towers_system.after(build_creep_grid),
             tower_info_system,
             opponent_hp_system,
             keyboard_cursor_system.after(tower_drag_system),
         ).run_if(in_state(AppState::Playing)))
+        .add_systems(Update, pause_menu_system.run_if(in_state(AppState::Playing)))
         .run();
 }
 
@@ -148,6 +151,7 @@ fn cleanup_game(
     commands.insert_resource(RoundState::default());
     commands.insert_resource(MatchOver::default());
     commands.insert_resource(WavePaused(false));
+    commands.insert_resource(PendingPauseAction::default());
     commands.insert_resource(WaveCount(0));
     commands.insert_resource(SelectedCell(Some((ROWS / 2, COLS / 2))));
     commands.insert_resource(HoverCell(None));
@@ -202,9 +206,14 @@ fn autoplay_system(mut next: ResMut<NextState<AppState>>) {
     if std::env::var("AUTOPLAY").is_ok() { next.set(AppState::Playing); }
 }
 
+fn start_restarted_game(mut next: ResMut<NextState<AppState>>) {
+    next.set(AppState::Playing);
+}
+
 fn setup(
     mut commands: Commands,
     mut sides: ResMut<Sides>,
+    mut held: ResMut<HeldBuilding>,
     deck: Res<Deck>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -215,11 +224,19 @@ fn setup(
     for st in sides.0.iter_mut() { st.path.dist = compute_path(&st.grid.blocked); }
     // balicky: hrac ma svuj z menu, bot si nahodne vybere 5 ze vsech vezi
     sides.get_mut(Side::Player).deck = deck.0.clone();
+    held.0 = deck.0.first().copied();
     {
         use rand::seq::SliceRandom;
-        let mut all: Vec<u8> = constants::ALL_TOWERS.iter().map(|t| t.0).collect();
-        all.shuffle(&mut rand::thread_rng());
-        all.truncate(constants::DECK_SIZE);
+        let mut rng = rand::thread_rng();
+        let mut basic: Vec<u8> = constants::ALL_TOWERS.iter().map(|t| t.0).filter(|kind| !constants::is_special_tower(*kind)).collect();
+        let mut special: Vec<u8> = constants::ALL_TOWERS.iter().map(|t| t.0).filter(|kind| constants::is_special_tower(*kind)).collect();
+        basic.shuffle(&mut rng);
+        special.shuffle(&mut rng);
+        basic.truncate(constants::DECK_BASIC_SIZE);
+        special.truncate(constants::DECK_SPECIAL_SIZE);
+        let mut all = basic;
+        all.extend(special);
+        all.shuffle(&mut rng);
         println!("Balicek hrace {:?}, bota {:?}", deck.0, all);
         sides.get_mut(Side::Bot).deck = all;
     }
@@ -402,7 +419,7 @@ fn setup(
         }
     });
 
-    // === hlaska hlidace (dole nad tlacitky), na zacatku skryta; ukazuje ji guardian_snipe_system ===
+    // === hlaska hlidace (dole nad tlacitky), na zacatku skryta; ukazuje ji guardian_dispatch_system ===
     commands.spawn((
         Node { position_type: PositionType::Absolute, bottom: Val::Px(100.0 + SAFE_BOTTOM), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() },
         Visibility::Hidden,
@@ -410,6 +427,106 @@ fn setup(
     )).with_children(|p| {
         p.spawn((Node { padding: UiRect::all(Val::Px(10.0)), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.8)))).with_children(|pp| {
             pp.spawn((Text::new("Hlidac: HAhaha - co to zkousis kamarade? Vsichni hrajeme Fair play !"), TextFont { font_size: 18.0, ..default() }, TextColor(Color::srgb(1.0, 0.85, 0.2))));
+        });
+    });
+
+    // === okno potvrzeni prodeje (uprostred obrazovky), na zacatku skryte ===
+    commands.spawn((Node {
+        position_type: PositionType::Absolute,
+        left: Val::Percent(50.0),
+        top: Val::Percent(40.0),
+        width: Val::Px(260.0),
+        margin: UiRect { left: Val::Px(-130.0), ..default() },
+        padding: UiRect::all(Val::Px(14.0)),
+        flex_direction: FlexDirection::Column,
+        align_items: AlignItems::Center,
+        row_gap: Val::Px(12.0),
+        display: Display::None,
+        ..default()
+    }, BackgroundColor(Color::srgba(0.05, 0.05, 0.07, 0.95)), BorderColor(Color::srgb(0.8, 0.3, 0.2)), GlobalZIndex(50), SellConfirmRoot)).with_children(|p| {
+        p.spawn((Text::new(""), TextFont { font_size: 15.0, ..default() }, TextColor(Color::WHITE), SellConfirmText));
+        p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(12.0), ..default() }).with_children(|row| {
+            for (label, col, yes) in [("ANO (Enter)", Color::srgb(0.75, 0.2, 0.15), true), ("NE (Esc)", Color::srgb(0.3, 0.3, 0.35), false)] {
+                let mut b = row.spawn((
+                    Button,
+                    Node { width: Val::Px(110.0), height: Val::Px(44.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                    BackgroundColor(col),
+                ));
+                if yes { b.insert(SellYesButton); } else { b.insert(SellNoButton); }
+                b.with_children(|bb| { bb.spawn((Text::new(label), TextFont { font_size: 13.0, ..default() }, TextColor(Color::WHITE))); });
+            }
+        });
+    });
+
+    // === pause menu ===
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            flex_direction: FlexDirection::Column,
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            row_gap: Val::Px(14.0),
+            display: Display::None,
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.78)),
+        GlobalZIndex(100),
+        PauseMenuRoot,
+    )).with_children(|p| {
+        p.spawn((Text::new("PAUZA"), TextFont { font_size: 38.0, ..default() }, TextColor(Color::WHITE)));
+        p.spawn((Node {
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            row_gap: Val::Px(10.0),
+            ..default()
+        }, PauseOptionsRoot)).with_children(|options| {
+            for (label, action, color) in [
+                ("POKRAČOVAT", None, Color::srgb(0.15, 0.55, 0.25)),
+                ("RESTART", Some(PauseAction::Restart), Color::srgb(0.55, 0.35, 0.12)),
+                ("MENU", Some(PauseAction::Menu), Color::srgb(0.25, 0.35, 0.55)),
+                ("KONEC", Some(PauseAction::Exit), Color::srgb(0.6, 0.2, 0.15)),
+            ] {
+                let mut button = options.spawn((
+                    Button,
+                    Node { width: Val::Px(220.0), height: Val::Px(52.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                    BackgroundColor(color),
+                ));
+                if let Some(action) = action {
+                    button.insert(PauseMenuButton(action));
+                } else {
+                    button.insert(PauseResumeButton);
+                }
+                button.with_children(|label_parent| {
+                    label_parent.spawn((Text::new(label), TextFont { font_size: 18.0, ..default() }, TextColor(Color::WHITE)));
+                });
+            }
+        });
+        p.spawn((Node {
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            row_gap: Val::Px(12.0),
+            display: Display::None,
+            ..default()
+        }, PauseConfirmRoot)).with_children(|confirm| {
+            confirm.spawn((Text::new("Opravdu?"), TextFont { font_size: 20.0, ..default() }, TextColor(Color::WHITE), PauseConfirmText));
+            confirm.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(12.0), ..default() }).with_children(|row| {
+                for (label, color, yes) in [
+                    ("ANO", Color::srgb(0.65, 0.2, 0.15), true),
+                    ("NE", Color::srgb(0.3, 0.3, 0.35), false),
+                ] {
+                    let mut button = row.spawn((
+                        Button,
+                        Node { width: Val::Px(100.0), height: Val::Px(44.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                        BackgroundColor(color),
+                    ));
+                    if yes { button.insert(PauseConfirmYesButton); } else { button.insert(PauseConfirmNoButton); }
+                    button.with_children(|label_parent| {
+                        label_parent.spawn((Text::new(label), TextFont { font_size: 16.0, ..default() }, TextColor(Color::WHITE)));
+                    });
+                }
+            });
         });
     });
 
@@ -425,6 +542,35 @@ fn setup(
         ..default()
     }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.8)), TowerInfoPanel)).with_children(|p| {
         p.spawn((Text::new(""), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE), TowerInfoText));
+    });
+
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Percent(50.0),
+            bottom: Val::Px(98.0 + SAFE_BOTTOM),
+            margin: UiRect { left: Val::Px(-145.0), ..default() },
+            flex_direction: FlexDirection::Row,
+            column_gap: Val::Px(6.0),
+            padding: UiRect::all(Val::Px(6.0)),
+            display: Display::None,
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.85)),
+        GlobalZIndex(20),
+        BuildTowerPanel,
+    )).with_children(|panel| {
+        for &kind in &deck.0 {
+            let def = tower_def::get_tower_def(kind, 1);
+            panel.spawn((
+                Button,
+                Node { width: Val::Px(48.0), height: Val::Px(42.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                BackgroundColor(def.color),
+                BuildTowerButton(kind),
+            )).with_children(|button| {
+                button.spawn((Text::new(constants::tower_tag(kind)), TextFont { font_size: 11.0, ..default() }, TextColor(Color::BLACK)));
+            });
+        }
     });
 
     // === dole uprostred - POSTAVIT (zelena, prazdne policko) / PRODAT (cervena, vez); jen kdyz je vybrane policko ===
