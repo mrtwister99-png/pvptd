@@ -2,8 +2,7 @@
 use bevy::prelude::*;
 use crate::components::{GoldText, DiamondText, LivesText, WaveText, WaveTimerText, Side, GameOverRoot, GameOverMenuButton, PauseMenuRoot, PauseOptionsRoot, PauseConfirmRoot, PauseConfirmText, PauseMenuButton, PauseResumeButton, PauseConfirmYesButton, PauseConfirmNoButton};
 use crate::resources::{Sides, WaveCount, RoundState, RoundPhase, WavePaused, MatchOver, GameMode};
-use crate::wave_def::get_creep_color_and_hp;
-use crate::constants::BOSS_EVERY;
+use crate::wave_def::{wave_def, boss_def, is_boss_wave, LAST_WAVE};
 use crate::menu::{AppState, PendingPauseAction, PauseAction, PauseOutcome, resolve_pause_confirmation};
 
 // pravy horni ctverecek: vzdy zivoty soupere (bota) + kam tlacitko prepne
@@ -39,9 +38,10 @@ pub fn update_ui(
         for mut t in q_esc.iter_mut() { if t.0 != s { t.0 = s.clone(); } }
     }
     if wave.is_changed() {
-        let (_, hp) = get_creep_color_and_hp(wave.0);
-        let boss = if wave.0 > 0 && wave.0 % BOSS_EVERY == 0 { " BOSS" } else { "" };
-        for mut t in q_wave.iter_mut() { t.0 = format!("Kolo: {} ({}HP){}", wave.0, hp as i32, boss); }
+        let w = wave_def(wave.0.max(1));
+        let boss = w.boss.map_or(String::new(), |(b, _)| format!(" BOSS {}", boss_def(b).name));
+        let sd = if wave.0 > LAST_WAVE { " SUDDEN DEATH" } else { "" };
+        for mut t in q_wave.iter_mut() { t.0 = format!("Vlna: {}/{} ({}HP){}{}", wave.0, LAST_WAVE, w.small.2 as i32, boss, sd); }
     }
 }
 
@@ -65,7 +65,7 @@ pub fn update_wave_timer(
         match round.phase {
             RoundPhase::Pause if wave.0 == 0 => format!("Stavba: {:.0}s", remaining),
             RoundPhase::Pause => {
-                let boss = if (wave.0 + 1) % BOSS_EVERY == 0 { " (BOSS!)" } else { "" };
+                let boss = if is_boss_wave(wave.0 + 1) { " (BOSS!)" } else { "" };
                 format!("Dalsi kolo za {:.0}s{}", remaining, boss)
             }
             RoundPhase::Running => format!("Kolo {} - posilej!", wave.0),
@@ -191,10 +191,11 @@ pub fn tower_info_system(
     selected: Res<crate::resources::SelectedCell>,
     panels: Res<crate::resources::PanelsOpen>,
     towers: Query<(&crate::components::Tower, Option<&crate::components::TowerMods>)>,
+    round: Res<RoundState>,
     mut q_panel: Query<&mut Node, With<crate::components::TowerInfoPanel>>,
     mut q_text: Query<&mut Text, With<crate::components::TowerInfoText>>,
 ) {
-    use crate::constants::{ALL_TOWERS, SELL_REFUND, TOWER_POISON};
+    use crate::constants::{ALL_TOWERS, TOWER_POISON};
     let selected_tower = selected.0.map_or(false, |(r, c)| {
         towers.iter().any(|(t, _)| t.side == Side::Player && t.row == r && t.col == c)
     });
@@ -223,7 +224,7 @@ pub fn tower_info_system(
             let special = crate::special::describe(t.kind, t.level);
             if !special.is_empty() { lines.push(special); }
             if rate_mul > 1.0 || dmg_mul > 1.0 { lines.push("Posilena podporou".to_string()); }
-            lines.push(format!("Prodej: +{}G", (t.invested as f32 * SELL_REFUND) as i32));
+            lines.push(format!("Typ: {:?}  Prodej: +{}G", crate::wave_def::tower_dmg_type(t.kind), crate::systems::tower_build::sell_price(t.invested, round.phase)));
             lines.join("
 ")
         }

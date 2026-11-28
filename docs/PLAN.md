@@ -1,7 +1,7 @@
 # Plán implementace – 1v1 proti botovi
 
 Cíl první etapy: **hratelný zápas 1v1 proti botovi v telefonu** podle finálního GDD (Meme TD 1v1, verze 1.0) a [DESIGN.md](DESIGN.md), hratelný až ke 30. vlně.
-Co z GDD ještě chybí, je v DESIGN.md, sekce **8. Rozdíly kódu proti GDD**.
+Co z GDD ještě chybí, je v DESIGN.md, sekce **7. Rozdíly kódu proti GDD**.
 Karty, truhly a online přijdou až potom. Každý krok končí tím, že hra jde spustit a vyzkoušet.
 
 ## Hlavní technická změna (hotovo)
@@ -30,29 +30,28 @@ Online soupeř pak bude jen jiná „strana“, kterou neřídí bot, ale síť.
 - [x] Na soupeřově lajně nejde stavět (jen se dívat).
 
 ### Krok 2 – kola, životy, výhra
-- [x] Kolo = vlna normálních creepů + 1 větší, každé 5. kolo boss, pauza 7 s mezi koly. (Na začátku 15 s stavba. Kolo končí, když z obou lajn zmizí creepi vlny, nejpozději po 60 s.)
-- [x] Vlny rostou plynule až ke 30. kolu, **po 30. kole** pojistka +15 % HP za kolo.
-- [x] Průnik: normální 1 / větší 2 / boss 4 životy, poslané jednotky 1.
+- [x] Kolo = vlna z tabulky GDD (malí + velcí creepové, každá 5. vlna boss), pauza 7 s mezi koly. (Na začátku 15 s stavba. Kolo končí, když z obou lajn zmizí creepi vlny, nejpozději po 60 s; vlna 30 čeká na všechny.)
+- [x] Po vlně 30 rozhodují životy, leaky a čas zabití bosse, jinak sudden death (+30 % HP za vlnu, první průchod = konec).
+- [x] Průnik: malý 1 / velký 2 / boss 3 životy, od vlny 26 aspoň 2 (soupeř dostane o 1 méně); poslané jednotky podle tabulky.
 - [x] Obrazovka výhry / prohry, návrat do menu (nový zápas začne od nuly).
 
 ### Krok 3 – ekonomika a posílání soupeři
-- [x] Start 250 g, income 20, tick 7 s, gold za zabití.
-- [x] Poslaná jednotka se objeví na **soupeřově** lajně a trvale zvedne income. Posílat jde jen během kola.
-- [x] Posílat jde neomezeně, dokud je gold, všechny jednotky odemčené.
-- [x] **34 jednotek** (přibyly TITAN, BANSHEE, HIEROPHANT, OVERLORD), v panelu S seřazené podle ceny.
+- [x] Start 250 g, income +3 / tick 7 s (max 40), gold za zabití 2–4 / boss 150, gold za přeživší vlnu.
+- [x] Poslaná jednotka se objeví hned na **soupeřově** lajně a trvale zvedne income (od dalšího ticku). Posílat jde jen během kola.
+- [x] 10 jednotek z GDD, max 12 za vlnu a 2 Mini-Bossové.
 
 ### Krok 4 – výběr stavby a vylepšování
 - [x] Katalog 15 Basic + 10 Special věží; balíček obsahuje **vždy přesně 4 Basic a 2 Special** (`deck_is_complete`, testy).
 - [x] Výběr typu věže v herním panelu; prázdné políčko postaví právě zvolený typ z balíčku.
 - [x] Vylepšení Basic věže za gold až na rank 7, Special až na rank 3; ceny a statistiky vycházejí z GDD.
-- [x] Stavba Special věže vyžaduje a spotřebuje jeden diamant.
+- [x] Stavba Special věže i každý její upgrade stojí jeden diamant (diamanty za bosse).
 - [x] **Spojování věží odstraněno** (podle GDD): rank se kupuje jen upgradem za gold, upgrade nemění bludiště.
-- [x] Prodej zůstává: vrací 50 % investovaného goldu.
+- [x] Prodej: 70 % před vlnou, 50 % během vlny.
 
 ### Krok 5 – bot
 - [x] Bot staví, když má gold, a skládá bludiště „had“ (zdi přes lajnu s mezerou střídavě vlevo/vpravo), nikdy si cestu nezazdí.
 - [x] Vylepšuje věže za gold (nejnižší rank první), když má aspoň 6 věží.
-- [x] Posílá jednotky z goldu navíc; od 3. kola občas investuje do income, i když ještě nemá dost věží.
+- [x] Posílá jednotky z goldu navíc (dodržuje limity GDD); od 3. kola občas investuje do income, i když ještě nemá dost věží.
 - [x] Opraven pád, když bot nemá na žádnou věž (přetečení rozpočtu).
 - [ ] Úrovně obtížnosti bota (lehký / normální / těžký) – později.
 
@@ -60,17 +59,13 @@ Online soupeř pak bude jen jiná „strana“, kterou neřídí bot, ale síť.
 - [x] Po HRÁT výběr **VS BOT** / **TEST** (ZPĚT vrátí hlavní menu).
 - [x] TEST: jen vlastní pole, všech 25 věží, neomezený gold a diamanty, životy se nepočítají, jednotky kdykoli na vlastní pole, tlačítko VLNA +1, okamžité ROZBÍT místo prodeje.
 
-### Krok 7 – vyvážení ke 30. vlně
-- [x] Model ekonomiky (income, zabití, posílání) a porovnání s HP vln: vlny od 8. kola rostly mnohem rychleji než gold hráče.
-- [x] Nová křivka vln 7–34 (HP vlny ≈ 1× až 2,2× goldu ve věžích), pojistka až po 30. kole.
-- [x] HP posílaných jednotek: HP za gold roste s cenou (2,0 → 3,8), aby se vyplatily i dražší jednotky.
-- [x] Testy: vlny rostou každé kolo, vlna 30 zůstává v hratelném rozsahu, dražší jednotka nemá méně HP za gold.
-- [ ] Ověřit hraním na telefonu (hlavně kola 15–30) a doladit `WAVE_HP_SCALE` a tabulku vln 7–15.
+### Krok 7 – vyvážení ke 30. vlně (nahrazeno GDD)
+- [x] Vlastní křivka vln a 34 jednotek (2026-11-28 dopoledne) – **nahrazena tabulkami z GDD** (krok 9).
 
 ### Krok 8 – testování a ladění na telefonu
-- [x] Automatické testy katalogu 25 věží, cen/upgradů, rank capů, diamantové ceny Special stavby, balíčku a křivky vln.
-- [ ] Délka zápasu: 30 kol trvá déle než původních 15 min – rozhodnout, jestli zkrátit kola.
-- [ ] Ceny jednotek, income, gold za zabití.
+- [x] Automatické testy: katalog 25 věží, ceny upgradů a diamanty Special, balíček, tabulky GDD (vlny, jednotky), cap income, životy od vlny 26, damage typy, rozhodnutí po vlně 30, Pepa.
+- [ ] Hraním ověřit obtížnost vln z GDD na mapě 7 × 14 (GDD počítá s 16 × 12) a délku zápasu 20–30 min.
+- [ ] GDD 15: kdy hráči dostanou první diamant, které věže se nepoužívají, jestli není tick 7 s moc hektický.
 
 ## Test na PC
 
@@ -81,6 +76,7 @@ Online soupeř pak bude jen jiná „strana“, kterou neřídí bot, ale síť.
 | `AUTOPLAY_BOTH=1` | bot hraje i za tebe (bot proti botovi) |
 | `SIM_ENDLESS=1` | zápas neskončí při 0 životech (jde vidět, do kterého kola obrana stíhá) |
 | `GAME_SPEED=5` | hra běží 5× rychleji (simulace) |
+| `CARGO_MANIFEST_DIR=<projekt>` | když se spouští přímo `target/debug/future_line_td.exe`, aby hra našla obrázky |
 | `HIDDEN_WINDOW=1` | okno se otevře mimo obrazovku (automatické testy) |
 | `SCREENSHOT_AT="15,20" SCREENSHOT_DIR=slozka` | screenshoty v daných sekundách zápasu (`SCREENSHOT_VIEW=bot` = kamera na lajně bota) |
 
@@ -94,20 +90,22 @@ $env:SIM_ENDLESS=1; $env:AUTOPLAY=1; $env:AUTOPLAY_BOTH=1; $env:GAME_SPEED=5; ca
 
 Ovládání: šipky posouvají vybrané políčko (Shift + šipka o dvě), Enter na prázdném políčku staví, Enter na věži ji vylepší za gold, S na věži prodá (okno ANO/NE), jinak S otevře panel jednotek. Pauzu otevře tlačítko PAUSE nebo mezerník; restart, návrat do menu i ukončení hry vyžadují potvrzení ANO/NE.
 
-### Krok 9 – převod na finální GDD
-- [ ] Ekonomika podle GDD 4.1–4.3: +3 / tick, cap 40, kill gold 2–4, bonus za vlnu, prodej 70 / 50 %.
-- [ ] 10 posílaných jednotek z GDD 4.4 (místo 34 z WC3 mapy), limity 12 za vlnu a 2 Mini-Bossové.
-- [ ] 10 typů creepů z GDD 9 a tabulka vln 1–30 z GDD 10, endless sudden death po vlně 30 (+30 % HP za vlnu).
-- [ ] 6 bossů z GDD 11, diamant podle GDD 4.2 (1. a 2. diamant odemyká Special věže).
-- [ ] Životy podle GDD 2 (boss 3, od vlny 26 leak −2 / +1, sudden death a tie-breaky po vlně 30).
-- [ ] 5 damage typů z GDD 5.
-- [ ] Mapa 16 × 12 s hadovkou, Hlídač Pepa (10 s na opravu), max 75 věží.
-- [ ] Rozhodnout přechod na Rust core + server + Godot klient (GDD 14).
+### Krok 9 – převod na finální GDD (2026-11-28)
+- [x] Data GDD odděleně v `src/wave_def.rs` (bez kreslení, připravené pro Rust core).
+- [x] Ekonomika GDD 4.1–4.3: +3 / tick, cap 40, kill gold 2–4, boss 150, gold za přeživší vlnu z tabulky, prodej 70 / 50 %.
+- [x] 10 posílaných jednotek z GDD 4.4, limity 12 za vlnu a 2 Mini-Bossové; vyběhnou hned (domluveno).
+- [x] 10 typů creepů se schopnostmi (štít, regenerace, kopie, aura rychlosti, náhodná rychlost, enrage) a tabulka vln 1–30.
+- [x] 6 bossů s jejich schopnostmi, diamanty (stavba i upgrade Special = 1 diamant, nepotřebný = 400 g, domluveno).
+- [x] Životy GDD 2: boss 3, od vlny 26 leak −2 / +1, rozhodnutí po vlně 30, sudden death +30 % HP za vlnu.
+- [x] 5 damage typů GDD 5, slow cap 50 %, kratší CC na bosse.
+- [x] Hlídač Pepa: 10 s na opravu, pak prodá nejdražší blokující věž; max 75 věží; nestavět pod creepy.
+- [x] Mapa zůstává 7 × 14, technika zůstává Bevy (domluveno).
+- [ ] Pepa jako postavička na cestě, zčervenání cesty, meme zvuky a kill feed (GDD 13).
 
 ## Další etapa (po botovi)
 Karty a truhly, úrovně karet, uložení progresu v telefonu → online 1v1, účty, žebříček → kosmetika, diamanty, obchod.
 
 ## Otázky k vyřešení během práce
 - **Statistiky ranků 6–7**: dopočítat ze stávající tabulky (stejný růst), nebo navrhnout znovu.
-- **Hlídač** (bourá věž při úplném zablokování cesty) zůstává pro obě strany; v TEST režimu nevybíhá.
+- **Hlídač Pepa** hlídá obě strany i v TEST režimu (zazděnou cestu po 10 s prodá).
 - **Zvláštní schopnosti jednotek 16, 17, 22, 23, 28** zatím chybí (mají jen staty).

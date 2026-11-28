@@ -10,12 +10,11 @@ pub struct RoundState {
     pub phase: RoundPhase,
     pub timer: Timer,        // odpocet pauzy
     pub elapsed: f32,        // jak dlouho uz bezi kolo
-    pub guardian_sent: bool, // hlidac pred dalsim kolem uz vybehl
 }
 
 impl Default for RoundState {
     fn default() -> Self {
-        Self { phase: RoundPhase::Pause, timer: Timer::from_seconds(crate::constants::BUILD_PHASE_SECS, TimerMode::Once), elapsed: 0.0, guardian_sent: false }
+        Self { phase: RoundPhase::Pause, timer: Timer::from_seconds(crate::constants::BUILD_PHASE_SECS, TimerMode::Once), elapsed: 0.0 }
     }
 }
 
@@ -36,6 +35,17 @@ pub fn not_test_mode(mode: Res<GameMode>) -> bool { !mode.is_test() }
 pub const TEST_GOLD: i32 = 1_000_000;
 pub const TEST_DIAMONDS: i32 = 999;
 
+// statistiky zapasu podle GDD: limity posilani v teto vlne, pocty leaku (tie-break po vlne 30),
+// cas zabiti posledniho bosse a sudden death po vlne 30 (dalsi leak = konec)
+#[derive(Resource, Default, Clone)]
+pub struct MatchStats {
+    pub sends: [u32; 2],          // kolik jednotek strana v teto vlne poslala (max 12)
+    pub mini_bosses: [u32; 2],    // kolik Mini-Bossu (max 2)
+    pub leaks: [u32; 2],          // kolik creepu proslo na lajne strany za cely zapas
+    pub last_boss_kill: [Option<f32>; 2], // kdy strana zabila bosse 30. vlny (driv = lepsi)
+    pub sudden_death: bool,
+}
+
 // konec zapasu: Some(vitez), jakmile nekdo prijde o vsechny zivoty
 #[derive(Resource, Default)]
 pub struct MatchOver(pub Option<crate::components::Side>);
@@ -44,7 +54,7 @@ pub struct WavePaused(pub bool);
 #[derive(Resource)]
 pub struct WaveCount(pub u32);
 // income: kazdych 7s pripise `amount` gold (zvysuje se odesilanim jednotek)
-pub struct Income { pub amount: f32, pub carry: f32, pub sent: [u32; 64], pub timer: Timer } // amount = gold za tik, carry = zbytek za desetinnou carkou, sent = kolik jednotek uz odeslano
+pub struct Income { pub amount: f32, pub timer: Timer } // amount = base + sendy (vyplaci se max 40 za tick, GDD 4.1)
 
 // stav jedne strany (hrac / bot): vlastni gold, income, zivoty a bludiste
 pub struct SideState {
@@ -67,7 +77,7 @@ impl SideState {
             diamonds: 0,
             gold_boost_timer: 0.0,
             doge_moon_used: false,
-            income: Income { amount: crate::constants::BASE_INCOME, carry: 0.0, sent: [0; 64], timer: Timer::from_seconds(7.0, TimerMode::Repeating) },
+            income: Income { amount: crate::wave_def::BASE_INCOME as f32, timer: Timer::from_seconds(crate::wave_def::INCOME_TICK_SECS, TimerMode::Repeating) },
             lives: crate::constants::START_LIVES,
             grid: Grid { blocked: [[false; COLS]; ROWS] },
             path: PathMap { dist: [[None; COLS]; ROWS] },
@@ -140,8 +150,6 @@ pub struct CreepAssets {
     pub unit_circle: Handle<Mesh>,                                 // kruh o polomeru 1 - velikost se dela pres scale
     pub slow_mat: Handle<ColorMaterial>,
     pub shadow_mesh: Handle<Mesh>,                                 // vyplneny kruh o polomeru 1 (stin letajicich jednotek, velikost pres scale)
-    pub shadow_mat: Handle<ColorMaterial>,                         // pruhledna cerna
-    pub main_meshes: std::collections::HashMap<u32, Handle<Mesh>>, // cache kruhu hlavniho tela podle polomeru (x10)
 }
 
 // okraje systemovych list (logicke px): nahore stav/cas/baterie, dole zpet/home; plni safe_area_system

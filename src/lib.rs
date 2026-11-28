@@ -53,6 +53,7 @@ pub fn main() {
         .insert_resource(PanelsOpen::default())
         .insert_resource(Deck::default())
         .insert_resource(KeyControl::default())
+        .insert_resource(MatchStats::default())
         .init_resource::<GameMode>()
         .add_systems(OnEnter(AppState::DeckSelect), deck::spawn_deck_screen)
         .add_systems(OnExit(AppState::DeckSelect), deck::despawn_deck_screen)
@@ -97,8 +98,10 @@ pub fn main() {
             build_creep_grid.after(move_creeps_maze).before(bullet_hit), // mrizka creepu pred zasahy
             dj_drop_system.after(build_creep_grid),
             bullet_hit,
-            update_debuffs,
-            despawn_dead_and_count,
+            update_debuffs.after(bullet_hit),
+            shield_system.after(update_debuffs).before(despawn_dead_and_count),
+            regen_system.after(shield_system),
+            despawn_dead_and_count.after(bullet_hit),
             round_system.run_if(not_test_mode),
             update_ui,
             update_wave_timer.after(round_system), // UI odpocet az po ticku kola
@@ -108,9 +111,12 @@ pub fn main() {
             enrage_system,
             enrage_flash_system,
             heal_system,
-            guardian_spawn_system.run_if(not_test_mode),
-            guardian_system,
+        ).run_if(in_state(AppState::Playing)))
+        .add_systems(Update, (
             update_damage_numbers,
+            speed_aura_system,
+            random_speed_system,
+            boss_system,
         ).run_if(in_state(AppState::Playing)))
         .add_systems(Update, (
             heal_ring_update_system,
@@ -119,7 +125,7 @@ pub fn main() {
             tower_slow_system,
             camera_gesture_system,
             shimmer_system,
-            guardian_dispatch_system,
+            pepa_system,
             selection_marker_system,
             safe_area_system,
             cheat_button_system,
@@ -158,6 +164,7 @@ fn cleanup_game(
     commands.insert_resource(HeldBuilding(None));
     commands.insert_resource(PanelsOpen::default());
     commands.insert_resource(KeyControl::default());
+    commands.insert_resource(MatchStats::default());
     // pooly: jejich entity byly smazany, setup je vytvori znovu
     commands.insert_resource(DamageNumberPool::default());
     commands.insert_resource(BulletPool::default());
@@ -379,7 +386,7 @@ fn setup(
         padding: UiRect::all(Val::Px(6.0)),
         ..default()
     }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)))).with_children(|p| {
-        p.spawn((Text::new("Income in: 7s (+0)"), TextFont { font_size: 14.0, ..default() }, TextColor(Color::srgb(0.5, 0.9, 0.5)), IncomeText));
+        p.spawn((Text::new("Income za 7s: +3"), TextFont { font_size: 14.0, ..default() }, TextColor(Color::srgb(0.5, 0.9, 0.5)), IncomeText));
     }); }
 
     // === CHEAT (vlevo nahore pod income): kazde stisknuti prida +50 do income (gold za tik); jen pro testovani ===
@@ -421,19 +428,17 @@ fn setup(
         display: Display::None,
         ..default()
     }, SendPanel)).with_children(|p| {
-        for kind in wave_def::units_by_cost() { // od nejlevnejsi (nove jednotky 31+ se zaradi podle ceny)
-            let def = wave_def::get_unit_def(kind);
+        for kind in 1..=wave_def::SEND_COUNT { // GDD 4.4: 10 jednotek od nejlevnejsi
+            let def = wave_def::send_def(kind);
+            let image = wave_def::creep_def(def.creep).image;
             p.spawn((
                 Button,
                 Node { width: Val::Px(64.0), height: Val::Px(64.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, flex_direction: FlexDirection::Column, row_gap: Val::Px(2.0), ..default() },
                 BackgroundColor(Color::srgb(0.2, 0.2, 0.22)),
                 SendPanelItem(kind),
             )).with_children(|pp| {
-                match def.image {
-                    Some(path) => { pp.spawn((ImageNode::new(asset_server.load(path)), Node { width: Val::Px(34.0), height: Val::Px(34.0), ..default() })); }
-                    None => { pp.spawn((Node { width: Val::Px(30.0), height: Val::Px(30.0), ..default() }, BackgroundColor(def.color), BorderRadius::MAX)); }
-                }
-                pp.spawn((Text::new(format!("{} {}g", def.name, def.cost)), TextFont { font_size: 9.0, ..default() }, TextColor(Color::WHITE)));
+                pp.spawn((ImageNode::new(asset_server.load(image)), Node { width: Val::Px(30.0), height: Val::Px(30.0), ..default() }));
+                pp.spawn((Text::new(format!("{}\n{}g +{}", def.name, def.cost, def.income)), TextFont { font_size: 8.0, ..default() }, TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center)));
             });
         }
     });
@@ -445,7 +450,7 @@ fn setup(
         GuardianMsg { timer: Timer::from_seconds(4.0, TimerMode::Once) },
     )).with_children(|p| {
         p.spawn((Node { padding: UiRect::all(Val::Px(10.0)), ..default() }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.8)))).with_children(|pp| {
-            pp.spawn((Text::new("Hlidac: HAhaha - co to zkousis kamarade? Vsichni hrajeme Fair play !"), TextFont { font_size: 18.0, ..default() }, TextColor(Color::srgb(1.0, 0.85, 0.2))));
+            pp.spawn((Text::new(""), TextFont { font_size: 18.0, ..default() }, TextColor(Color::srgb(1.0, 0.85, 0.2)), GuardianMsgText));
         });
     });
 

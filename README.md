@@ -2,7 +2,7 @@
 
 Mobilní 1v1 tower defense v Rustu a Bevy 0.15 (Android + PC). Každý hráč staví bludiště z věží na své lajně, vylepšuje je za gold, přežívá automatické vlny a posílá soupeři jednotky, které mu zvednou income.
 
-Hlavní zdroj pravdy je finální GDD **Meme TD 1v1** (verze 1.0). Co z něj v kódu ještě chybí, je v [docs/DESIGN.md](docs/DESIGN.md), sekce 8.
+Hlavní zdroj pravdy je finální GDD **Meme TD 1v1** (verze 1.0). Co z něj v kódu ještě chybí, je v [docs/DESIGN.md](docs/DESIGN.md), sekce 7.
 
 ## Spuštění
 
@@ -12,7 +12,7 @@ cargo run
 
 V menu **HRÁT** vybereš režim:
 
-- **VS BOT** – zápas 1v1 proti botovi (30 životů jako přetahovaná, vlny až ke 30. kolu a dál).
+- **VS BOT** – zápas 1v1 proti botovi podle GDD: 30 vln, 6 bossů, 30 životů jako přetahovaná, po vlně 30 rozhodují životy nebo sudden death.
 - **TEST** – hřiště: jen tvoje pole, všech 25 věží, neomezený gold, životy se nepočítají, jednotky z panelu S jdou na tvoje pole, VLNA +1 pošle další vlnu.
 
 **BALÍČEK**: do zápasu si vybíráš vždy 4 Basic a 2 Special věže.

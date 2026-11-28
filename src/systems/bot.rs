@@ -4,11 +4,11 @@ use bevy::prelude::*;
 use rand::Rng;
 use crate::components::{Side, Tower, Selling};
 use crate::constants::{BOT_THINK_SECS, COLS, ROWS};
-use crate::resources::{CreepAssets, MatchOver, RoundPhase, RoundState, SideState, Sides, WavePaused};
-use crate::systems::creep::spawn_sent_unit;
+use crate::resources::{CreepAssets, CreepGrid, MatchOver, MatchStats, RoundPhase, RoundState, SideState, Sides, WavePaused};
+use crate::systems::creep::{can_send, send_unit};
 use crate::systems::tower_build::{tower_build_cost, tower_upgrade_cost, try_build_kind, try_upgrade, TowerRef};
 use crate::utils::compute_path;
-use crate::wave_def::{get_unit_def, income_multiplier, UNIT_COUNT};
+use crate::wave_def::{send_def, SEND_COUNT};
 
 // Plan bludiste bota: "had" ze zdi pres celou sirku s jednou mezerou, mezery se strida vlevo/vpravo.
 // Radky 0-1 dole jsou cil, 13 nahore vstup. Poradi = poradi stavby.
@@ -42,7 +42,7 @@ fn next_affordable_tower(st: &SideState) -> Option<u8> {
         .map(|offset| st.deck[(start + offset) % len])
         .find(|&kind| {
             st.gold >= tower_build_cost(kind)
-                && (!crate::constants::is_special_tower(kind) || st.diamonds > 0)
+                && st.diamonds >= crate::systems::tower_build::tower_diamond_cost(kind)
         })
 }
 
@@ -60,6 +60,8 @@ pub fn bot_system(
     mut think: Local<f32>,
     mut status: Local<u32>, // pocitadlo pro vypis stavu do logu
     wave: Res<crate::resources::WaveCount>,
+    mut stats: ResMut<MatchStats>,
+    creep_grid: Res<CreepGrid>,
     towers: Query<(Entity, &Tower), Without<Selling>>,
 ) {
     if paused.0 || over.0.is_some() { return; }
@@ -84,7 +86,7 @@ pub fn bot_system(
         if mine.len() >= 6 && (enough || rand::thread_rng().gen_bool(0.4)) {
             let st = sides.get(me);
             let pick = mine.iter()
-                .filter(|t| tower_upgrade_cost(t.kind, t.rank).map_or(false, |c| c <= st.gold))
+                .filter(|t| tower_upgrade_cost(t.kind, t.rank).map_or(false, |c| c <= st.gold) && st.diamonds >= crate::systems::tower_build::tower_diamond_cost(t.kind))
                 .min_by_key(|t| (t.rank, std::cmp::Reverse(t.row)))
                 .copied();
             if let Some(t) = pick {
@@ -104,14 +106,14 @@ pub fn bot_system(
             let next = bot_plan().into_iter().find(free)
                 .or_else(|| (2..ROWS - 1).rev().flat_map(|r| (0..COLS).map(move |c| (r, c))).find(free));
             if let (Some((r, c)), Some(kind)) = (next, next_kind) {
-                if try_build_kind(me, r, c, kind, &mut commands, &mut sides, &asset_server) { continue; }
+                if try_build_kind(me, r, c, kind, &mut commands, &mut sides, &asset_server, Some(&creep_grid)) { continue; }
             }
         }
 
         // 3) posilani: jen behem kola a jen z goldu navic (aby mel na dalsi stavbu); posle nejdrazsi jednotku do tretiny goldu
         if round.phase != RoundPhase::Running { continue; }
         let Some(assets) = assets.as_ref() else { continue; };
-        let st = sides.get_mut(me);
+        let st = sides.get(me);
         // dokud nema dost vezi, posila jen z velkeho prebytku (2x cena stavby); pak z goldu nad cenou dalsi stavby,
         // pri investici az do poloviny goldu
         let next_kind = next_affordable_tower(st);
@@ -119,14 +121,10 @@ pub fn bot_system(
         // saturating: kdyz nema na zadnou vez, je cost = i32::MAX a obycejne odecitani by preteklo
         let budget = if invest { st.gold / 2 } else if enough { st.gold.saturating_sub(cost) } else { st.gold.saturating_sub(cost.saturating_mul(2)) };
         if budget <= 0 { continue; }
-        let pick = (1..=UNIT_COUNT).filter(|&k| get_unit_def(k).cost <= budget).max_by_key(|&k| get_unit_def(k).cost);
+        // nejdrazsi jednotka, na kterou ma a kterou jeste smi poslat (GDD: max 12 za vlnu, max 2 Mini-Bossove)
+        let pick = (1..=SEND_COUNT).filter(|&k| send_def(k).cost <= budget && can_send(&stats, me, k)).max_by_key(|&k| send_def(k).cost);
         let Some(kind) = pick else { continue; };
-        let def = get_unit_def(kind);
-        st.gold -= def.cost;
-        let idx = (kind as usize).min(63);
-        st.income.amount += def.income as f32 * income_multiplier(st.income.sent[idx]);
-        st.income.sent[idx] += 1;
-        spawn_sent_unit(&mut commands, &assets, &mut meshes, &mut materials, &asset_server, me.other(), kind, 1.0, 1.0);
-        println!("Bot poslal {} za {}G (income {:.1})", def.name, def.cost, st.income.amount);
+        send_unit(&mut commands, &assets, &mut meshes, &mut materials, &asset_server, &mut sides, &mut stats, me, me.other(), kind, wave.0);
+        println!("Bot poslal {} za {}G (income {:.0})", send_def(kind).name, send_def(kind).cost, sides.get(me).income.amount);
     }
 }

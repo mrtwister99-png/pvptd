@@ -2,7 +2,8 @@
 use bevy::prelude::*;
 use crate::components::{Side, SwitchViewButton, Tower, Selling, UpgradeLabel, SellLabel, RangeRing, RangeRingNext, HoverHighlight, TowerLevelText, PauseButtonUI, SendToggleButton, SendPanel, TowerActionPanel, UpgradeButton, SellButton, SelectionMarker, SafeRoot, BuildTowerButton, BuildTowerPanel};
 use crate::resources::{HoverCell, SelectedCell, Sides, ViewSide, MatchOver, KeyControl, WavePaused, HeldBuilding, PanelsOpen, InputPointer, SafeInsets, GameMode};
-use crate::constants::{CELL, LANE_H, LANE_W, CAM_BASE_Y, tower_icon_path, SELL_SECONDS, SELL_REFUND, ROWS, COLS};
+use crate::constants::{CELL, LANE_H, LANE_W, CAM_BASE_Y, tower_icon_path, SELL_SECONDS, ROWS, COLS};
+use crate::resources::{RoundState, RoundPhase, CreepGrid};
 use crate::tower_def::get_tower_def;
 use crate::utils::{grid_to_world, compute_path};
 
@@ -52,15 +53,7 @@ mod tests {
         mut sides: ResMut<Sides>,
         mut attempt: ResMut<BuildAttempt>,
     ) {
-        attempt.0 = Some(try_build_kind(
-            Side::Player,
-            0,
-            0,
-            16,
-            &mut commands,
-            &mut sides,
-            &asset_server,
-        ));
+        attempt.0 = Some(try_build_kind(Side::Player, 0, 0, 16, &mut commands, &mut sides, &asset_server, None));
     }
 
     #[derive(Resource, Default)]
@@ -70,7 +63,7 @@ mod tests {
     fn attempt_upgrades(mut commands: Commands, asset_server: Res<AssetServer>, mut sides: ResMut<Sides>, mut attempt: ResMut<UpgradeAttempt>, mut step: Local<u32>, towers: Query<(Entity, &Tower)>) {
         *step += 1;
         if *step == 1 {
-            assert!(try_build_kind(Side::Player, 0, 0, 1, &mut commands, &mut sides, &asset_server));
+            assert!(try_build_kind(Side::Player, 0, 0, 1, &mut commands, &mut sides, &asset_server, None));
             return;
         }
         if let Some((e, t)) = towers.iter().next() {
@@ -94,6 +87,38 @@ mod tests {
         let mut q = app.world_mut().query::<&Tower>();
         let t = q.iter(app.world()).next().unwrap();
         assert_eq!((t.level, t.invested), (2, 85));
+    }
+
+    // postavi Chucka Norrise (Special) a zkusi ho vylepsit
+    fn attempt_special_upgrade(mut commands: Commands, asset_server: Res<AssetServer>, mut sides: ResMut<Sides>, mut attempt: ResMut<UpgradeAttempt>, mut step: Local<u32>, towers: Query<(Entity, &Tower)>) {
+        *step += 1;
+        if *step == 1 {
+            assert!(try_build_kind(Side::Player, 0, 0, 16, &mut commands, &mut sides, &asset_server, None));
+            return;
+        }
+        if let Some((e, t)) = towers.iter().next() {
+            attempt.0.push(try_upgrade(&mut commands, &asset_server, &mut sides, Side::Player, TowerRef::of(e, t)));
+        }
+    }
+
+    #[test]
+    fn special_upgrade_costs_a_diamond_on_top_of_gold() {
+        let mut sides = Sides::default();
+        let player = sides.get_mut(Side::Player);
+        player.gold = 5000;
+        player.deck = vec![16];
+        player.diamonds = 1; // jen na stavbu
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).add_plugins(AssetPlugin::default())
+            .insert_resource(sides).insert_resource(UpgradeAttempt::default())
+            .add_systems(Update, attempt_special_upgrade);
+        for _ in 0..2 { app.update(); }
+        assert_eq!(app.world().resource::<UpgradeAttempt>().0, vec![false]); // bez diamantu upgrade nejde
+        app.world_mut().resource_mut::<Sides>().get_mut(Side::Player).diamonds = 1;
+        app.update();
+        assert_eq!(app.world().resource::<UpgradeAttempt>().0, vec![false, true]);
+        let st = app.world().resource::<Sides>().get(Side::Player);
+        assert_eq!((st.diamonds, st.gold), (0, 5000 - 400 - 320));
     }
 
     #[test]
@@ -173,7 +198,7 @@ pub fn spawn_tower(commands: &mut Commands, asset_server: &AssetServer, side: Si
     commands.spawn((
         sprite,
         Transform::from_xyz(pos.x, pos.y, 5.0),
-        Tower { side, damage_min: def.dmg_min, damage_max: def.dmg_max, range: def.range, fire_rate, cooldown: 0.0, kind, col, row, level: rank, splash: def.splash, slow_per_hit: def.slow_per, slow_max: def.slow_max, push_chance: def.push_chance, push_dist: def.push_dist, dot_dps: def.dot_dps, dot_duration: def.dot_dur, chain_targets: def.chain, hit_count: 0, last_ability_wave: 0, ability_used_match: false, dj_drop_timer: 10.0, invested },
+        Tower { side, damage_min: def.dmg_min, damage_max: def.dmg_max, range: def.range, fire_rate, cooldown: 0.0, kind, col, row, level: rank, splash: def.splash, slow_per_hit: def.slow_per, slow_max: def.slow_max, push_chance: def.push_chance, push_dist: def.push_dist, dot_dps: def.dot_dps, dot_duration: def.dot_dur, chain_targets: def.chain, hit_count: 0, last_ability_wave: 0, dj_drop_timer: 10.0, invested },
     )).with_children(|p| {
         p.spawn((Text2d::new(format!("R{}", rank)), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE), Transform::from_xyz(0.0, -18.0, 1.0), TowerLevelText));
         // vez bez ikony: zkratka nazvu doprostred ctverecku, at se daji rozeznat
@@ -183,11 +208,29 @@ pub fn spawn_tower(commands: &mut Commands, asset_server: &AssetServer, side: Si
     });
 }
 
-pub fn try_build_kind(side: Side, row: usize, col: usize, kind: u8, commands: &mut Commands, sides: &mut Sides, asset_server: &AssetServer) -> bool {
+// GDD 3: max 75 vezi na hrace (kazda vez zabira jedno policko bludiste)
+pub const MAX_TOWERS: usize = 75;
+
+// diamanty za stavbu / upgrade: Special vez stoji pri stavbe i pri kazdem upgradu 1 diamant (Basic nic)
+pub fn tower_diamond_cost(kind: u8) -> i32 {
+    if crate::constants::is_special_tower(kind) { crate::wave_def::SPECIAL_DIAMOND_COST } else { 0 }
+}
+
+// stojí na policku creep? (GDD 3: behem vlny se nesmi stavet primo pod creepy)
+pub fn creep_on_cell(creeps: Option<&CreepGrid>, side: Side, row: usize, col: usize) -> bool {
+    let Some(grid) = creeps else { return false; };
+    let mut out = Vec::new();
+    grid.query(grid_to_world(side, row, col), CELL * 0.6, &mut out);
+    !out.is_empty()
+}
+
+pub fn try_build_kind(side: Side, row: usize, col: usize, kind: u8, commands: &mut Commands, sides: &mut Sides, asset_server: &AssetServer, creeps: Option<&CreepGrid>) -> bool {
     let st = sides.get_mut(side);
     if row >= ROWS || col >= COLS || st.grid.blocked[row][col] || !st.deck.contains(&kind) { return false; }
+    let towers = st.grid.blocked.iter().flatten().filter(|b| **b).count();
+    if towers >= MAX_TOWERS || creep_on_cell(creeps, side, row, col) { return false; }
     let cost = tower_build_cost(kind);
-    let diamond_cost = i32::from(crate::constants::is_special_tower(kind));
+    let diamond_cost = tower_diamond_cost(kind);
     if st.gold < cost || st.diamonds < diamond_cost { return false; }
     st.gold -= cost;
     st.diamonds -= diamond_cost;
@@ -210,18 +253,21 @@ impl TowerRef {
 // na stejnem policku, bludiste se nemeni. Kdyz chybi gold nebo je vez na max ranku, nic se nestane.
 pub fn try_upgrade(commands: &mut Commands, asset_server: &AssetServer, sides: &mut Sides, side: Side, t: TowerRef) -> bool {
     let Some(cost) = tower_upgrade_cost(t.kind, t.rank) else { return false; };
+    let diamonds = tower_diamond_cost(t.kind);
     let st = sides.get_mut(side);
-    if st.gold < cost { return false; }
+    if st.gold < cost || st.diamonds < diamonds { return false; }
     st.gold -= cost;
+    st.diamonds -= diamonds;
     commands.entity(t.e).despawn_recursive();
     spawn_tower(commands, asset_server, side, t.kind, t.rank + 1, t.row, t.col, t.invested + cost);
     println!("{:?} vylepsil {} na R{} za {}G", side, t.kind, t.rank + 1, cost);
     true
 }
 
-// kolik gold vrati prodej veze
-fn sell_price(invested: i32) -> i32 {
-    (invested as f32 * SELL_REFUND) as i32
+// kolik gold vrati prodej veze (GDD 4.3): pred vlnou 70 %, behem vlny 50 % goldu; diamanty se nevraci
+pub fn sell_price(invested: i32, phase: RoundPhase) -> i32 {
+    let refund = if phase == RoundPhase::Running { crate::wave_def::SELL_DURING_WAVE } else { crate::wave_def::SELL_BEFORE_WAVE };
+    (invested as f32 * refund) as i32
 }
 
 // klik na PRODAT: spusti odpocet prodeje (behem nej dal strili); klik na ZRUSIT (tlacitko behem prodeje) prodej zrusi
@@ -255,11 +301,12 @@ pub fn selling_system(
     mut q_selling: Query<(Entity, &Tower, &mut Selling, &Children)>,
     mut q_level_text: Query<&mut Text2d, With<TowerLevelText>>,
     mode: Res<GameMode>,
+    round: Res<RoundState>,
 ) {
     for (ent, tower, mut selling, children) in q_selling.iter_mut() {
         selling.timer.tick(time.delta());
         if selling.timer.finished() || mode.is_test() { // v testu se vez rozbije hned
-            let price = sell_price(tower.invested);
+            let price = sell_price(tower.invested, round.phase);
             let st = sides.get_mut(tower.side);
             st.grid.blocked[tower.row][tower.col] = false;
             st.path.dist = compute_path(&st.grid.blocked);
@@ -276,7 +323,7 @@ pub fn selling_system(
     }
 }
 
-// tlacitko na prazdnem policku postavi zvolenou vez; na vezi koupi dalsi rank
+// tlacitko na prazdnem policku postavi zvolenou vez; na vezi koupi dalsi rank (Special navic za diamant)
 pub fn build_button_input(
     mut commands: Commands,
     mut sides: ResMut<Sides>,
@@ -284,64 +331,20 @@ pub fn build_button_input(
     held: Res<HeldBuilding>,
     asset_server: Res<AssetServer>,
     over: Res<MatchOver>,
-    q_towers: Query<(Entity, &Tower, &Children, Has<Selling>)>,
-    mut q_sprites: Query<&mut Sprite, With<Tower>>,
-    mut q_level_text: Query<&mut Text2d, With<TowerLevelText>>,
+    creep_grid: Res<CreepGrid>,
+    q_towers: Query<(Entity, &Tower, Has<Selling>)>,
     q_btn: Query<&Interaction, (Changed<Interaction>, With<UpgradeButton>)>,
 ) {
     if !q_btn.iter().any(|i| *i == Interaction::Pressed) || over.0.is_some() { return; }
     let Some((row, col)) = selected_cell.0 else { return; };
-    let tower = q_towers.iter().find(|(_, t, _, _)| t.side == Side::Player && t.row == row && t.col == col);
-    let Some((kind, next_rank, invested, cooldown, hit_count, last_ability_wave, ability_used_match, dj_drop_timer, entity, children)) = tower.map(|(e, t, children, selling)| {
-        if selling { return (0, 0, 0, 0.0, 0, 0, false, 10.0, Entity::PLACEHOLDER, children); }
-        (t.kind, t.level + 1, t.invested, t.cooldown, t.hit_count, t.last_ability_wave, t.ability_used_match, t.dj_drop_timer, e, children)
-    }) else {
-        let Some(kind) = selected_build_kind(&sides.get(Side::Player).deck, held.0) else { return; };
-        try_build_kind(Side::Player, row, col, kind, &mut commands, &mut sides, &asset_server);
-        return;
-    };
-    if entity == Entity::PLACEHOLDER { return; }
-    let Some(cost) = tower_upgrade_cost(kind, next_rank - 1) else { return; };
-    let st = sides.get_mut(Side::Player);
-    if st.gold < cost { return; }
-    st.gold -= cost;
-    let def = get_tower_def(kind, next_rank);
-    commands.entity(entity).insert(Tower {
-        side: Side::Player,
-        damage_min: def.dmg_min,
-        damage_max: def.dmg_max,
-        range: def.range,
-        fire_rate: 1.0 / def.interval.max(0.1),
-        cooldown,
-        kind,
-        col,
-        row,
-        level: next_rank,
-        splash: def.splash,
-        slow_per_hit: def.slow_per,
-        slow_max: def.slow_max,
-        push_chance: def.push_chance,
-        push_dist: def.push_dist,
-        dot_dps: def.dot_dps,
-        dot_duration: def.dot_dur,
-        chain_targets: def.chain,
-        hit_count,
-        last_ability_wave,
-        ability_used_match,
-        dj_drop_timer,
-        invested: invested + cost,
-    });
-    if let Ok(mut sprite) = q_sprites.get_mut(entity) {
-        if tower_icon_path(kind).is_none() {
-            sprite.color = def.color;
+    match q_towers.iter().find(|(_, t, _)| t.side == Side::Player && t.row == row && t.col == col) {
+        Some((_, _, true)) => {} // prave se prodava
+        Some((e, t, false)) => { try_upgrade(&mut commands, &asset_server, &mut sides, Side::Player, TowerRef::of(e, t)); }
+        None => {
+            let Some(kind) = selected_build_kind(&sides.get(Side::Player).deck, held.0) else { return; };
+            try_build_kind(Side::Player, row, col, kind, &mut commands, &mut sides, &asset_server, Some(&creep_grid));
         }
     }
-    for &child in children.iter() {
-        if let Ok(mut text) = q_level_text.get_mut(child) {
-            text.0 = format!("R{}", next_rank);
-        }
-    }
-    println!("Vylepseni {:?} veze {} na R{} za {}G", Side::Player, kind, next_rank, cost);
 }
 
 pub fn build_choice_input_system(
@@ -496,6 +499,7 @@ pub fn sell_confirm_ui_system(
     q_yes: Query<&Interaction, (Changed<Interaction>, With<crate::components::SellYesButton>)>,
     q_no: Query<&Interaction, (Changed<Interaction>, With<crate::components::SellNoButton>)>,
     mode: Res<GameMode>,
+    round: Res<RoundState>,
 ) {
     let tower = kc.sell_confirm.and_then(|(r, c)| q_towers.iter().find(|(_, t)| t.side == Side::Player && t.row == r && t.col == c));
     if kc.sell_confirm.is_some() && tower.is_none() { kc.sell_confirm = None; } // vez mezitim zmizela
@@ -503,7 +507,7 @@ pub fn sell_confirm_ui_system(
     for mut n in q_root.iter_mut() { let d = if show { Display::Flex } else { Display::None }; if n.display != d { n.display = d; } }
     let Some((e, t)) = tower else { return; };
     let name = crate::constants::ALL_TOWERS.iter().find(|x| x.0 == t.kind).map_or("?", |x| x.1);
-    let s = if mode.is_test() { format!("Rozbit {} R{}?", name, t.level) } else { format!("Prodat {} R{} za +{}G?", name, t.level, sell_price(t.invested)) };
+    let s = if mode.is_test() { format!("Rozbit {} R{}?", name, t.level) } else { format!("Prodat {} R{} za +{}G?", name, t.level, sell_price(t.invested, round.phase)) };
     for mut txt in q_text.iter_mut() { if txt.0 != s { txt.0 = s.clone(); } }
     if q_yes.iter().any(|i| *i == Interaction::Pressed) {
         commands.entity(e).try_insert(Selling { timer: Timer::from_seconds(SELL_SECONDS, TimerMode::Once) });
@@ -527,6 +531,7 @@ pub fn panels_display_system(
     mut q_up_btn: Query<(&mut BackgroundColor, &mut Node), (With<UpgradeButton>, Without<SellButton>, Without<SendPanel>, Without<TowerActionPanel>)>,
     mut q_sell_btn: Query<(&mut BackgroundColor, &mut Node), (With<SellButton>, Without<UpgradeButton>, Without<SendPanel>, Without<TowerActionPanel>)>,
     mode: Res<GameMode>,
+    round: Res<RoundState>,
 ) {
     let st = sides.get(Side::Player);
     let show = |open: bool| if open { Display::Flex } else { Display::None };
@@ -541,28 +546,29 @@ pub fn panels_display_system(
         None => {
             let kind = selected_build_kind(&st.deck, held.0);
             let cost = kind.map(tower_build_cost);
+            let diamonds = kind.map_or(0, tower_diamond_cost);
             let up = match (kind, cost) {
-                (Some(kind), Some(cost)) => format!("POSTAVIT\n{}\n{}G", crate::constants::tower_tag(kind), cost),
+                (Some(kind), Some(cost)) => format!("POSTAVIT\n{}\n{}G{}", crate::constants::tower_tag(kind), cost, if diamonds > 0 { " +1D" } else { "" }),
                 _ => "VYBER VEZ".to_string(),
             };
             for mut t in q_up_label.iter_mut() { if t.0 != up { t.0 = up.clone(); } }
-            let col = if cost.map_or(false, |cost| st.gold >= cost) { Color::srgb(0.15, 0.6, 0.2) } else { Color::srgb(0.07, 0.15, 0.08) };
+            let col = if cost.map_or(false, |cost| st.gold >= cost && st.diamonds >= diamonds) { Color::srgb(0.15, 0.6, 0.2) } else { Color::srgb(0.07, 0.15, 0.08) };
             for (mut bg, _) in q_up_btn.iter_mut() { if bg.0 != col { bg.0 = col; } }
         }
         Some((tower, selling)) => {
             let upgrade = tower_upgrade_cost(tower.kind, tower.level)
-                .map(|cost| format!("UPGRADE\nR{}\n{}G", tower.level + 1, cost))
+                .map(|cost| format!("UPGRADE\nR{}\n{}G{}", tower.level + 1, cost, if tower_diamond_cost(tower.kind) > 0 { " +1D" } else { "" }))
                 .unwrap_or_else(|| format!("MAX\nR{}", crate::constants::tower_rank_cap(tower.kind)));
             for mut t in q_up_label.iter_mut() { if t.0 != upgrade { t.0 = upgrade.clone(); } }
             let upgrade_cost = tower_upgrade_cost(tower.kind, tower.level);
-            let upgrade_color = if upgrade_cost.map_or(false, |cost| st.gold >= cost) {
+            let upgrade_color = if upgrade_cost.map_or(false, |cost| st.gold >= cost && st.diamonds >= tower_diamond_cost(tower.kind)) {
                 Color::srgb(0.15, 0.6, 0.2)
             } else {
                 Color::srgb(0.07, 0.15, 0.08)
             };
             for (mut bg, _) in q_up_btn.iter_mut() { if bg.0 != upgrade_color { bg.0 = upgrade_color; } }
 
-            let sell = if mode.is_test() { "ROZBIT".to_string() } else if selling { "ZRUSIT\nPRODEJ".to_string() } else { format!("PRODAT\n+{}G\n({:.0}s)", sell_price(tower.invested), SELL_SECONDS) };
+            let sell = if mode.is_test() { "ROZBIT".to_string() } else if selling { "ZRUSIT\nPRODEJ".to_string() } else { format!("PRODAT\n+{}G\n({:.0}s)", sell_price(tower.invested, round.phase), SELL_SECONDS) };
             for mut t in q_sell_label.iter_mut() { if t.0 != sell { t.0 = sell.clone(); } }
             let col = if selling { Color::srgb(0.8, 0.55, 0.1) } else { Color::srgb(0.75, 0.2, 0.15) };
             for (mut bg, _) in q_sell_btn.iter_mut() { if bg.0 != col { bg.0 = col; } }
@@ -638,7 +644,7 @@ pub fn send_panel_scroll_system(
     }
     for t in touches.iter() { dy -= t.delta().y; } // tah prstem
     if dy == 0.0 { return; }
-    let rows = (crate::wave_def::UNIT_COUNT as f32 / 2.0).ceil();
+    let rows = (crate::wave_def::SEND_COUNT as f32 / 2.0).ceil();
     let content_h = rows * SEND_ITEM + (rows - 1.0) * SEND_GAP;
     let max = (content_h - SEND_VIEW_H).max(0.0);
     for mut s in q.iter_mut() { s.offset_y = (s.offset_y + dy).clamp(0.0, max); }
@@ -823,6 +829,7 @@ pub fn keyboard_cursor_system(
     asset_server: Res<AssetServer>,
     view: Res<ViewSide>,
     over: Res<MatchOver>,
+    creep_grid: Res<CreepGrid>,
     q_towers: Query<(Entity, &Tower), Without<Selling>>,
 ) {
     if view.0 != Side::Player || over.0.is_some() {
@@ -867,7 +874,7 @@ pub fn keyboard_cursor_system(
                     if let Some((e, t)) = tower_at(cell) {
                         try_upgrade(&mut commands, &asset_server, &mut sides, Side::Player, TowerRef::of(e, t));
                     } else if let Some(kind) = selected_build_kind(&sides.get(Side::Player).deck, held.0) {
-                        try_build_kind(Side::Player, cell.0, cell.1, kind, &mut commands, &mut sides, &asset_server);
+                        try_build_kind(Side::Player, cell.0, cell.1, kind, &mut commands, &mut sides, &asset_server, Some(&creep_grid));
                     }
                 }
             }

@@ -41,3 +41,17 @@
 - Bot místo spojování vylepšuje věže za gold (nejnižší rank první).
 - Dokumentace: GDD je hlavní zdroj pravdy, do DESIGN.md přibyl seznam rozdílů kódu proti GDD a do PLAN.md krok
   „převod na finální GDD“. Dnešní přeladění vln a 34 jednotek GDD nedodržuje a při převodu se nahradí.
+
+### 2026-11-28 – Převod na finální GDD
+
+- Data GDD v `src/wave_def.rs`: 10 typů creepů, 6 bossů, tabulka vln 1–30, 10 posílaných jednotek, ekonomika,
+  životy, damage typy a diamanty. Staré tabulky (34 jednotek z WC3 mapy, vlastní křivka vln) jsou pryč.
+- Ekonomika: +3 / tick (max 40), kill gold 2–4, boss 150, gold za přeživší vlnu, prodej 70 / 50 %.
+- Diamanty (domluveno): zabitý boss = diamant, propuštěný = diamant soupeři; stavba i upgrade Special = 1 diamant;
+  kdo diamanty nepotřebuje, dostane 400 g.
+- Životy: boss 3, od vlny 26 leak −2 / +1, po vlně 30 rozhodují životy → leaky → čas zabití bosse → sudden death.
+- Creepové se schopnostmi (štít, regenerace, kopie, aura rychlosti, náhodná rychlost, enrage), bossové se schopnostmi
+  (fyzický štít, aura rychlosti, debuff věží, vypínání věží, omráčení, tři fáze Mámy).
+- 5 damage typů (125 / 75 %), slow cap 50 %, bossové mají poloviční CC.
+- Hlídač Pepa: 10 s na opravu zazděné cesty, pak prodá nejdražší blokující věž. Max 75 věží, nestaví se pod creepy.
+- Domluvené odchylky od GDD: mapa zůstává 7 × 14, poslané jednotky vyběhnou hned, technika zůstává Bevy.

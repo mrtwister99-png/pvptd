@@ -11,18 +11,21 @@ pub fn update_debuffs(
     mut q_stun: Query<(Entity, &mut StunDebuff)>,
     mut q_marks: Query<(Entity, &mut crate::components::Cursed)>,
     mut debuffs: ParamSet<(
-        Query<(Entity, &Transform, &mut BurnDebuff, &mut Health, Option<&crate::components::Resist>)>,
-        Query<(Entity, &Transform, &mut PoisonDebuff, &mut Health, Option<&crate::components::Resist>)>,
+        Query<(Entity, &Transform, &mut BurnDebuff, &mut Health, Option<&crate::components::DmgTarget>)>,
+        Query<(Entity, &Transform, &mut PoisonDebuff, &mut Health, Option<&crate::components::DmgTarget>)>,
     )>,
+    bosses: Query<(), With<crate::components::Boss>>,
 ) {
+    // GDD 5: bossove maji o 50 % kratsi crowd control -> jejich slow a stun dobihaji 2x rychleji
+    let cc = |e: Entity| if bosses.contains(e) { time.delta().mul_f32(1.0 / crate::wave_def::BOSS_CC_MUL) } else { time.delta() };
     for (e, mut slow) in q_slow.iter_mut() {
-        slow.timer.tick(time.delta());
+        slow.timer.tick(cc(e));
         if slow.timer.finished() {
             if let Some(mut ec) = commands.get_entity(e) { ec.remove::<SlowDebuff>(); }
         }
     }
     for (e, mut stun) in q_stun.iter_mut() {
-        stun.timer.tick(time.delta());
+        stun.timer.tick(cc(e));
         if stun.timer.finished() {
             if let Some(mut ec) = commands.get_entity(e) { ec.remove::<StunDebuff>(); }
         }
@@ -30,11 +33,11 @@ pub fn update_debuffs(
     for (e, mut c) in q_marks.iter_mut() {
         if c.timer.tick(time.delta()).finished() { if let Some(mut ec) = commands.get_entity(e) { ec.remove::<crate::components::Cursed>(); } }
     }
-    for (e, tf, mut burn, mut hp, resist) in debuffs.p0().iter_mut() {
+    for (e, tf, mut burn, mut hp, target) in debuffs.p0().iter_mut() {
         burn.timer.tick(time.delta());
         burn.tick.tick(time.delta());
         if burn.tick.just_finished() {
-            let dmg = burn.dps * 0.5 * resist.map_or(1.0, |r| r.dmg_mul[6]);
+            let dmg = burn.dps * 0.5 * target.map_or(1.0, |t| crate::wave_def::damage_mul(burn.kind, &t.0));
             hp.0 -= dmg;
             let jitter = Vec2::new(rand::thread_rng().gen_range(-6.0..6.0), rand::thread_rng().gen_range(0.0..8.0));
             spawn_damage_number(&mut commands, &mut pool, dmg, Color::srgb(1.0, 0.4, 0.1), Vec2::new(tf.translation.x + jitter.x, tf.translation.y + jitter.y + 18.0), 25.0, 0.7);
@@ -43,11 +46,11 @@ pub fn update_debuffs(
             if let Some(mut ec) = commands.get_entity(e) { ec.remove::<BurnDebuff>(); }
         }
     }
-    for (e, tf, mut poison, mut hp, resist) in debuffs.p1().iter_mut() {
+    for (e, tf, mut poison, mut hp, target) in debuffs.p1().iter_mut() {
         poison.timer.tick(time.delta());
         poison.tick.tick(time.delta());
         if poison.tick.just_finished() {
-            let dmg = poison.dps * 0.5 * resist.map_or(1.0, |r| r.dmg_mul[7]);
+            let dmg = poison.dps * 0.5 * target.map_or(1.0, |t| crate::wave_def::damage_mul(crate::constants::TOWER_POISON, &t.0));
             hp.0 -= dmg;
             let jitter = Vec2::new(rand::thread_rng().gen_range(-6.0..6.0), rand::thread_rng().gen_range(0.0..8.0));
             spawn_damage_number(&mut commands, &mut pool, dmg, Color::srgb(0.4, 0.9, 0.3), Vec2::new(tf.translation.x + jitter.x, tf.translation.y + jitter.y + 18.0), 25.0, 0.7);

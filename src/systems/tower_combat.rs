@@ -27,10 +27,13 @@ fn hits_air(_kind: u8, _level: u32) -> bool {
     true
 }
 
-// odolnost creepa vuci druhu veze (tabulka Resist ma jen puvodnich 8 druhu; nove veze = bez odolnosti)
-fn resist_mul(r: Option<&crate::components::Resist>, kind: u8) -> f32 {
-    let k = kind as usize;
-    if k < 8 { r.map_or(1.0, |r| r.dmg_mul[k]) } else { 1.0 }
+// odolnost a damage typ zasazeneho creepa (kopie, aby se nemusely drzet reference do dotazu)
+fn resist_of(q: &Query<(Option<&crate::components::Resist>, Option<&crate::components::DmgTarget>)>, e: Entity) -> Option<crate::components::Resist> { q.get(e).ok().and_then(|(r, _)| r.copied()) }
+fn target_of(q: &Query<(Option<&crate::components::Resist>, Option<&crate::components::DmgTarget>)>, e: Entity) -> Option<crate::components::DmgTarget> { q.get(e).ok().and_then(|(_, t)| t.copied()) }
+
+// damage typ veze proti cili (GDD 5): silny zasah 125 %, slaby 75 %
+fn resist_mul(t: Option<crate::components::DmgTarget>, kind: u8) -> f32 {
+    t.map_or(1.0, |t| crate::wave_def::damage_mul(kind, &t.0))
 }
 
 fn attack_def(kind: u8) -> AttackDef {
@@ -243,7 +246,7 @@ pub fn bullet_hit(
     mut poisons: Query<&mut crate::components::PoisonDebuff, With<Creep>>,
     mut tower_abilities: Query<&mut Tower, Without<Creep>>,
     air: Query<(), With<Air>>,
-    resists: Query<&crate::components::Resist>,
+    creep_defs: Query<(Option<&crate::components::Resist>, Option<&crate::components::DmgTarget>)>, // odolnosti a damage typy
     time: Res<Time>,
     mut waves: ResMut<crate::fx::ShockwavePool>,
     mut wave_mats: ResMut<Assets<crate::fx::ShockwaveMaterial>>,
@@ -269,7 +272,7 @@ pub fn bullet_hit(
             for &(c_ent, c_pos) in near.iter() {
                 if !bullet.hits_air && air.contains(c_ent) { continue; } // splash zemni veze letajici nezasahne
                 if let Ok((mut hp, _, _, cursed)) = creeps.get_mut(c_ent) {
-                    let dmg = bullet.damage * resist_mul(resists.get(c_ent).ok(), bullet.kind) * (1.0 + cursed.map_or(0.0, |c| c.mul)); // odolnost + kletba
+                    let dmg = bullet.damage * resist_mul(target_of(&creep_defs, c_ent), bullet.kind) * (1.0 + cursed.map_or(0.0, |c| c.mul)); // odolnost + kletba
                     hp.0 -= dmg;
                     add_frame_dmg(&mut frame_dmg, c_ent, c_pos, dmg, Color::srgb(1.0, 0.4, 0.1));
                 }
@@ -286,10 +289,10 @@ pub fn bullet_hit(
                 hp.0 = hp.0.min(max_hp.0);
                 creep.max_hp_reductions |= reduction_flag;
             }
-            let mut dmg = bullet.damage * resist_mul(resists.get(hit_ent).ok(), bullet.kind) * (1.0 + cursed.map_or(0.0, |c| c.mul)); // odolnost + kletba
+            let mut dmg = bullet.damage * resist_mul(target_of(&creep_defs, hit_ent), bullet.kind) * (1.0 + cursed.map_or(0.0, |c| c.mul)); // odolnost + kletba
             let mut col = Color::srgb(1.0, 0.4, 0.1);
             if bullet.kind == CHUCK_NORRIS {
-            dmg = bullet.damage;
+            dmg = bullet.damage * resist_mul(target_of(&creep_defs, hit_ent), bullet.kind); // cisty dmg (Mama ve 3. fazi +20 %)
             if hp.0 / max_hp.0.max(1.0) < 0.30 { dmg = hp.0; }
             col = Color::srgb(0.95, 0.85, 0.5);
             } else if bullet.kind == SNIPER {
@@ -313,7 +316,11 @@ pub fn bullet_hit(
         if let Some(mut ec) = commands.get_entity(hit_ent) {
             match bullet.kind {
                 KAKTUS => { ec.try_insert(crate::components::Cursed { mul: 0.10, timer: Timer::from_seconds(2.0, TimerMode::Once) }); }
-                DANOVY_URAD => { ec.try_insert(crate::components::Cursed { mul: 0.08, timer: Timer::from_seconds(2.0, TimerMode::Once) }); }
+                DANOVY_URAD => {
+                    // kletba +8 % dmg, rusi stit a heal (GDD 7)
+                    ec.try_insert(crate::components::Cursed { mul: 0.08, timer: Timer::from_seconds(2.0, TimerMode::Once) });
+                    ec.remove::<crate::components::Shield>();
+                }
                 BABICKA if bullet.shot_count % 6 == 0 => {
                     ec.try_insert(crate::components::StunDebuff { timer: Timer::from_seconds(1.0, TimerMode::Once) });
                 }
@@ -445,7 +452,7 @@ pub fn bullet_hit(
         }
         // get_entity: creep mohl byt mezitim despawnuty
         if bullet.slow > 0.0 {
-            if let Some(mut ec) = commands.get_entity(hit_ent) { ec.try_insert(crate::components::SlowDebuff { timer: Timer::from_seconds(2.5, TimerMode::Once), factor: 1.0 - bullet.slow.clamp(0.0, bullet.slow_max) * (1.0 - resists.get(hit_ent).map_or(0.0, |r| r.slow)) }); }
+            if let Some(mut ec) = commands.get_entity(hit_ent) { ec.try_insert(crate::components::SlowDebuff { timer: Timer::from_seconds(2.5, TimerMode::Once), factor: 1.0 - bullet.slow.clamp(0.0, bullet.slow_max) * (1.0 - resist_of(&creep_defs, hit_ent).map_or(0.0, |r| r.slow)) }); }
         }
         if bullet.dot_dps > 0.0 {
             if let Some(mut ec) = commands.get_entity(hit_ent) {
@@ -462,11 +469,11 @@ pub fn bullet_hit(
                         ec.try_insert(crate::components::PoisonDebuff { timer: Timer::from_seconds(bullet.dot_dur, TimerMode::Once), tick: Timer::from_seconds(0.5, TimerMode::Repeating), dps: bullet.dot_dps, level: bullet.level, stacks: 1 });
                     }
                 } else {
-                    ec.try_insert(crate::components::BurnDebuff { timer: Timer::from_seconds(bullet.dot_dur, TimerMode::Once), tick: Timer::from_seconds(0.5, TimerMode::Repeating), dps: bullet.dot_dps, level: bullet.level });
+                    ec.try_insert(crate::components::BurnDebuff { timer: Timer::from_seconds(bullet.dot_dur, TimerMode::Once), tick: Timer::from_seconds(0.5, TimerMode::Repeating), dps: bullet.dot_dps, level: bullet.level, kind: bullet.kind });
                 }
             }
         }
-        apply_push_stun(&mut commands, hit_ent, &bullet, &mut rng, resists.get(hit_ent).ok());
+        apply_push_stun(&mut commands, hit_ent, &bullet, &mut rng, resist_of(&creep_defs, hit_ent).as_ref());
         if bullet.chain_left > 0 {
             // chain: blesk skace vzdy na nejblizsiho jeste nezasazeneho creepa, kazdy skok o chain_falloff mene damage
             chained.clear();
@@ -480,10 +487,10 @@ pub fn bullet_hit(
                 let Some(&(c_ent, c_pos)) = next else { break; };
                 dmg *= bullet.chain_falloff;
                 if let Ok((mut hp, _, _, _)) = creeps.get_mut(c_ent) {
-                    let shown = dmg * resist_mul(resists.get(c_ent).ok(), bullet.kind); // odolnost podle druhu veze (dmg se dal snizuje bez ni)
+                    let shown = dmg * resist_mul(target_of(&creep_defs, c_ent), bullet.kind); // odolnost podle druhu veze (dmg se dal snizuje bez ni)
                     hp.0 -= shown;
                     add_frame_dmg(&mut frame_dmg, c_ent, c_pos, shown, Color::srgb(0.6, 0.9, 1.0));
-                    apply_push_stun(&mut commands, c_ent, &bullet, &mut rng, resists.get(c_ent).ok());
+                    apply_push_stun(&mut commands, c_ent, &bullet, &mut rng, resist_of(&creep_defs, c_ent).as_ref());
                 }
                 crate::systems::effects::spawn_bolt(&mut commands, &mut bolt_pool, cur_pos, c_pos); // svetla car mezi creepy
                 chained.push(c_ent);

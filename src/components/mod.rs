@@ -37,7 +37,6 @@ pub struct Tower {
     pub chain_targets: u32,
     pub hit_count: u32,
     pub last_ability_wave: u32,
-    pub ability_used_match: bool,
     pub dj_drop_timer: f32,
     pub invested: i32, // kolik goldu stala stavba + vsechny upgrady (pro prodej)
 }
@@ -50,8 +49,27 @@ pub struct Creep {
     pub max_hp_reductions: u8,
     pub base_radius: f32,
     pub speed_mul: f32, // nasobek rychlosti chuze (1.0 = bezna)
-    pub leak_cost: u32, // kolik zivotu stoji, kdyz projde (normalni 1, vetsi 2, boss vic)
+    pub leak_cost: u32, // kolik zivotu stoji, kdyz projde (GDD: maly 1, velky 2, boss 3; poslane jednotky podle tabulky)
+    pub kill_gold: i32, // gold za zabiti (GDD 4.1: 2-4 podle typu, boss 150, poslane jednotky 0)
 }
+
+// === CREEPOVE PODLE GDD (data v wave_def.rs) ===
+// co creep ma proti damage typum (silny / slaby zasah); stit a schopnosti bossu ho meni za behu
+#[derive(Component, Clone, Copy)] pub struct DmgTarget(pub crate::wave_def::Target);
+// stit (AdBlock Rytir, Mama ve 2. fazi): pohlti damage, dokud nedojde; prev = HP v minulem snimku
+#[derive(Component)] pub struct Shield { pub hp: f32, pub prev: f32 }
+// regenerace (Wi-Fi Upir): kdyz `idle` sekund nedostal zasah, leci se
+#[derive(Component)] pub struct Regen { pub idle: f32, pub prev: f32 }
+// po smrti se rozpadne na kopie (Kopirovaci Bot)
+#[derive(Component)] pub struct CopyOnDeath;
+// aura rychlosti (Cringe Influencer, Sef z Prace): okolni creepove jdou rychleji
+#[derive(Component)] pub struct SpeedAura { pub bonus: f32, pub radius: f32 }
+// bonus rychlosti, ktery creep prave ma od aury (pocita speed_aura_system)
+#[derive(Component, Default)] pub struct AuraSpeed(pub f32);
+// nahodna rychlost (Lagujici Brambora): kazde 3 s nova
+#[derive(Component)] pub struct RandomSpeed { pub timer: Timer, pub mul: f32 }
+// boss podle GDD 11: casovace jeho schopnosti
+#[derive(Component)] pub struct Boss { pub kind: crate::wave_def::BossKind, pub a: Timer, pub b: Timer, pub phase: u8, pub guard_left: f32 }
 
 #[derive(Component)] pub struct CreepMainCircle;
 #[derive(Component)] pub struct Health(pub f32);
@@ -86,7 +104,7 @@ pub struct Bullet {
 }
 
 #[derive(Component)] pub struct SlowDebuff { pub timer: Timer, pub factor: f32 }
-#[derive(Component)] pub struct BurnDebuff { pub timer: Timer, pub tick: Timer, pub dps: f32, pub level: u32 } // level veze (pro efekty)
+#[derive(Component)] pub struct BurnDebuff { pub timer: Timer, pub tick: Timer, pub dps: f32, pub level: u32, pub kind: u8 } // level a druh veze (efekty, damage typ)
 #[derive(Component)] pub struct StunDebuff { pub timer: Timer }
 #[derive(Component)] pub struct PoisonDebuff { pub timer: Timer, pub tick: Timer, pub dps: f32, pub level: u32, pub stacks: u8 }
 #[derive(Component)] pub struct DeathExplosion { pub damage: f32, pub radius: f32 }
@@ -127,7 +145,7 @@ pub struct Bullet {
 
 // odesilani jednotek (panel S) + income
 #[derive(Component)] pub struct SendPanelItem(pub u8);
-#[derive(Component)] pub struct SentUnit { pub cost: i32 } // cena jednotky (pro bonus za projiti)
+#[derive(Component)] pub struct SentUnit;
 #[derive(Component)] pub struct IncomeText;
 #[derive(Component)] pub struct BuildTowerPanel;
 #[derive(Component)] pub struct BuildTowerButton(pub u8);
@@ -147,17 +165,15 @@ pub struct Bullet {
 // letajici jednotka: leti rovne pres bludiste a trefi ji jen veze, ktere umi strilet do vzduchu
 #[derive(Component)] pub struct Air;
 
-// enrage: po poklesu HP pod hp_frac * max HP se jednou zvysi rychlost a velikost (data z wave_def::enrage_for)
+// enrage: po poklesu HP pod hp_frac * max HP se jednou zvysi rychlost a velikost (Chad Kuryr, Sef z Prace)
 #[derive(Component)] pub struct Enrage { pub hp_frac: f32, pub speed_bonus: f32, pub size_bonus: f32, pub flash: Color }
 
 // cervene probliknuti pri spusteni enrage (child kolecko, po case se smaze)
 #[derive(Component)] pub struct EnrageFlash { pub timer: Timer }
 
-// odolnosti jednotky (data z wave_def::resist_for): stun_immune = nejde omracit, push = podil odhozeni, ktery se ignoruje (0.5 = 50 %)
-#[derive(Component)] pub struct Resist { pub stun_immune: bool, pub push: f32, pub slow: f32, pub dmg_mul: [f32; 8] } // slow = podil sily zpomaleni, ktery se ignoruje (0.2 = 20 %); dmg_mul[druh veze] = nasobek damage (1.0 = beze zmeny)
+// odolnosti (bossove): stun_immune = nejde omracit, push = podil odhozeni, ktery se ignoruje (0.5 = 50 %)
+#[derive(Component, Clone, Copy)] pub struct Resist { pub stun_immune: bool, pub push: f32, pub slow: f32 } // slow = podil sily zpomaleni, ktery se ignoruje (0.2 = 20 %)
 
-// hlidac: nesmrtelna jednotka (bez Creep = veze ani strely ji nevidi), pred vlnou probehne lajnu a niCi veze, ktere blokuji cestu
-#[derive(Component)] pub struct Guardian;
 
 // tlacitko vpravo nahore: prepnout kameru na lajnu soupere a zpet
 #[derive(Component)] pub struct SwitchViewButton;
@@ -201,8 +217,9 @@ pub struct Bullet {
 // pulzujici kruh okolo tela (vizual odolnosti, data z wave_def::shimmer_for); scale se meni podle base_r a period
 #[derive(Component)] pub struct Shimmer { pub base_r: f32, pub period: f32 }
 
-// hlaska hlidace dole na obrazovce (Visibility ji zobrazuje/skryva, timer = jak dlouho zustane videt)
+// hlaska Hlidace Pepy / bosse dole na obrazovce (Visibility ji zobrazuje/skryva, timer = jak dlouho zustane videt)
 #[derive(Component)] pub struct GuardianMsg { pub timer: Timer }
+#[derive(Component)] pub struct GuardianMsgText;
 
 // zvyraznene vybrane policko (zluty ramecek), jede za SelectedCell
 #[derive(Component)] pub struct SelectionMarker;
@@ -216,7 +233,7 @@ pub struct Bullet {
 
 // aura creepu na VEZE v radiu (data z wave_def::tower_aura_for): upravuje strelbu vezi, stomp je periodicke omraceni
 #[derive(Component)]
-pub struct TowerAura { pub radius: f32, pub random_target: f32, pub dmg_mul: f32, pub range_mul: f32, pub rate_mul: f32, pub stomp_every: f32, pub stomp_stun: f32, pub timer: Timer }
+pub struct TowerAura { pub radius: f32, pub random_target: f32, pub dmg_mul: f32, pub range_mul: f32, pub rate_mul: f32, pub stomp_every: f32, pub stomp_stun: f32, pub stomp_single: bool, pub timer: Timer } // stomp_single = omraci jen 1 nahodnou vez (Danovy Urad, Mama)
 
 // upravy veze od aur creepu (pocita tower_aura_system kazdy snimek, cte tower_shoot)
 #[derive(Component)]

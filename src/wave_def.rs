@@ -1,304 +1,353 @@
-use bevy::prelude::*;
+// DATA PODLE FINALNIHO GDD (Meme TD 1v1, verze 1.0): typy creepu, bossove, vlny 1-30, posilane jednotky,
+// damage typy a pravidla zivotu / diamantu. Zadne kresleni ani Bevy systemy - jen tabulky a ciste funkce,
+// aby slo jadro pozdeji presunout do Rust core / serveru (GDD 14).
+use bevy::prelude::Color;
 
-#[derive(Clone)]
-#[allow(dead_code)]
-pub struct WaveDef {
-    pub name: &'static str,
-    pub code: &'static str,
-    pub hp: f32,
-    pub count: usize,
-    pub total_hp: f32,
-    pub req_dps: f32,
-    pub time_est: f32,
-    pub color: Color, // zakladni barva vlny, ale creepy budou mit nahodnou variaci
-    pub is_mega: bool,
-    pub is_sudden: bool,
-    pub boss_hp: f32,
+// === 9. CREEPOVE (10 typu + Danovy Optimalizator z tabulky vln) ===
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum CreepType {
+    Wojak,         // zaklad, zadna schopnost
+    Zoomer,        // Zoomer Doomer: rychly 1,55x, slaby na led (Mrazak)
+    Zombi,         // Tlusty Zombi z Lidlu: tank 0,6x, slaby na ohen (Toustovac)
+    Karen,         // Karen Manazerka: obrnena (20 % fyzicka odolnost -> fyzicke 75 %)
+    WifiUpir,      // Wi-Fi Upir: regeneruje 1,5 % HP/s, kdyz 2 s nedostane zasah
+    Influencer,    // Cringe Influencer: aura +10 % rychlost okolnim creepum
+    AdBlock,       // AdBlock Rytir: zacina se stitem 30 % HP
+    KopirBot,      // Kopirovaci Bot: po smrti 2 kopie s 20 % HP
+    Brambora,      // Lagujici Brambora: kazde 3 s nahodna rychlost 0,8-1,3x
+    Chad,          // Chad Kuryr Elite: 1,15x, pod 50 % HP +25 % rychlost, obrneny
+    Optimalizator, // Danovy Optimalizator: je ve vlnach 10, 18, 24, v seznamu creepu chybi -> obrneny + magicka odolnost
 }
 
-pub fn get_wave_def(wave: u32) -> WaveDef {
+pub struct CreepTypeDef {
+    pub name: &'static str,
+    pub speed: f32,          // nasobek zakladni rychlosti
+    pub armored: bool,       // fyzicke 75 %, pruzarne a magicke 125 %
+    pub fast: bool,          // fyzicke 125 %
+    pub magic_resist: bool,  // magicke 75 %
+    pub kill_gold: i32,      // GDD 4.1: 2 az 4 podle typu
+    pub image: &'static str,
+}
+
+pub fn creep_def(t: CreepType) -> CreepTypeDef {
+    use CreepType::*;
+    let d = |name, speed, armored, fast, magic_resist, kill_gold, _color: Color, image| CreepTypeDef { name, speed, armored, fast, magic_resist, kill_gold, image };
+    match t {
+        Wojak => d("Wojak", 1.0, false, false, false, 2, Color::srgb(0.85, 0.8, 0.7), "creeps/creep1.png"),
+        Zoomer => d("Zoomer Doomer", 1.55, false, true, false, 2, Color::srgb(0.3, 0.9, 0.9), "creeps/creep6.png"),
+        Zombi => d("Tlusty Zombi", 0.6, false, false, false, 4, Color::srgb(0.4, 0.7, 0.3), "creeps/creep10.png"),
+        Karen => d("Karen", 0.85, true, false, false, 3, Color::srgb(0.95, 0.6, 0.75), "creeps/creep3.png"),
+        WifiUpir => d("Wi-Fi Upir", 0.95, false, false, false, 3, Color::srgb(0.55, 0.3, 0.8), "creeps/creep14.png"),
+        Influencer => d("Cringe Influencer", 1.0, false, false, false, 3, Color::srgb(1.0, 0.5, 0.8), "creeps/creep13.png"),
+        AdBlock => d("AdBlock Rytir", 0.9, false, false, false, 3, Color::srgb(0.6, 0.65, 0.75), "creeps/creep8.png"),
+        KopirBot => d("Kopirovaci Bot", 1.0, false, false, false, 2, Color::srgb(0.7, 0.7, 0.7), "creeps/creep5.png"),
+        Brambora => d("Lagujici Brambora", 1.0, false, false, false, 2, Color::srgb(0.8, 0.65, 0.3), "creeps/creep4.png"),
+        Chad => d("Chad Kuryr", 1.15, true, false, false, 4, Color::srgb(0.95, 0.75, 0.2), "creeps/creep7.png"),
+        Optimalizator => d("Danovy Optimalizator", 0.9, true, false, true, 3, Color::srgb(0.4, 0.45, 0.8), "creeps/creep2.png"),
+    }
+}
+
+pub const ADBLOCK_SHIELD: f32 = 0.30;     // stit = 30 % max HP
+pub const WIFI_REGEN: f32 = 0.015;        // 1,5 % max HP za sekundu...
+pub const WIFI_REGEN_IDLE: f32 = 2.0;     // ...kdyz 2 s nedostal zasah
+pub const KOPIR_COPIES: u32 = 2;          // po smrti 2 kopie...
+pub const KOPIR_COPY_HP: f32 = 0.20;      // ...s 20 % max HP
+pub const INFLUENCER_AURA: f32 = 0.10;    // +10 % rychlost okolnim creepum
+pub const INFLUENCER_RADIUS: f32 = 2.0;   // v policcich
+pub const BRAMBORA_EVERY: f32 = 3.0;      // kazde 3 s nova rychlost
+pub const BRAMBORA_SPEED: (f32, f32) = (0.8, 1.3);
+pub const CHAD_ENRAGE: (f32, f32) = (0.5, 0.25); // pod 50 % HP +25 % rychlost
+
+// === 11. BOSSOVE ===
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BossKind { Ucitel, Sef, Tchyne, DanovyUrad, Babicka, Mama }
+
+pub struct BossDef { pub name: &'static str, pub speed: f32, pub armored: bool, pub image: &'static str, pub quote: &'static str }
+
+pub fn boss_def(b: BossKind) -> BossDef {
+    use BossKind::*;
+    match b {
+        Ucitel => BossDef { name: "Pan Ucitel", speed: 0.8, armored: false, image: "creeps/boss1.png", quote: "Kdo nebyl pripraven, propada." },
+        Sef => BossDef { name: "Sef z Prace", speed: 0.8, armored: false, image: "creeps/boss2.png", quote: "Muzes zustat prescas?" },
+        Tchyne => BossDef { name: "Tchyne", speed: 0.75, armored: false, image: "creeps/boss1.png", quote: "Uz zase hrajes?" },
+        DanovyUrad => BossDef { name: "Danovy Urad", speed: 0.7, armored: true, image: "creeps/boss2.png", quote: "Mate to v trojim vyhotoveni?" },
+        Babicka => BossDef { name: "Babicka s Vareckou", speed: 1.3, armored: false, image: "creeps/boss1.png", quote: "Pojd domu!" },
+        Mama => BossDef { name: "Tvoje Mama Vola", speed: 0.75, armored: false, image: "creeps/boss2.png", quote: "Okamzite vypni ten pocitac!" },
+    }
+}
+
+// schopnosti bossu (GDD 11), cisla na jednom miste
+pub const UCITEL_GUARD: (f32, f32, f32) = (8.0, 2.0, 0.35);   // kazdych 8 s na 2 s -35 % fyzickeho dmg
+pub const UCITEL_TOWER_SLOW: f32 = 0.85;                       // tabule: veze v okoli strili o 15 % pomaleji
+pub const SEF_ENRAGE: (f32, f32) = (0.5, 0.30);                // pod 50 % HP +30 % rychlost
+pub const SEF_SPEED_AURA: f32 = 0.20;                          // +20 % rychlost creepum
+pub const TCHYNE_TOWER_DMG: f32 = 0.85;                        // -15 % dmg vezi v okoli
+pub const URAD_DISABLE: (f32, f32) = (7.0, 2.0);               // kazdych 7 s vypne 1 nahodnou vez na 2 s
+pub const URAD_LEAK_GOLD: i32 = 100;                           // kdyz projde, sebere 100 goldu
+pub const BABICKA_STUN: (f32, f32) = (5.0, 1.0);               // varecka: kazdych 5 s omraci veze v okoli na 1 s
+pub const MAMA_PHASES: (f32, f32) = (0.66, 0.33);              // hranice fazi (podil HP)
+pub const MAMA_SUMMON_EVERY: f32 = 6.0;                        // faze 1: privola Kopirovaciho Bota
+pub const MAMA_SHIELD: (f32, f32) = (8.0, 0.15);               // faze 2: kazdych 8 s stit 15 % max HP
+pub const MAMA_RAGE: (f32, f32) = (0.40, 0.20);                // faze 3: +40 % rychlost, +20 % cisteho dmg
+pub const MAMA_CALL: (f32, f32) = (10.0, 3.0);                 // kazdych 10 s vypne nahodnou vez na 3 s
+pub const BOSS_AURA_RADIUS: f32 = 3.0;                         // v policcich: dosah aur a debuffu bossu na veze
+
+// === 10. VLNY 1-30 ===
+pub struct WaveDef {
+    pub small: (CreepType, u32, f32),        // (typ, pocet, HP)
+    pub big: Option<(CreepType, u32, f32)>,  // velci creepove (leak 2)
+    pub boss: Option<(BossKind, f32)>,       // boss (leak 3)
+    pub reward: i32,                         // gold za prezitou vlnu (boss vlna: + diamant)
+    pub mixed: bool,                         // vlny 29+: "smisene" typy, strida se vsech 10
+}
+
+pub const LAST_WAVE: u32 = 30;
+pub const ENDLESS_HP_GROWTH: f32 = 1.30; // po vlne 30: +30 % HP kazdou dalsi vlnu (sudden death)
+
+pub fn wave_def(wave: u32) -> WaveDef {
+    use CreepType::*;
+    use BossKind::*;
+    let w = |small, big, boss, reward| WaveDef { small, big, boss, reward, mixed: false };
     match wave {
-        1 => WaveDef { name:"Sheep", code:"n00E", hp:20.0, count:5, total_hp:100.0, req_dps:12.0, time_est:8.3, color:Color::srgba(0.75,0.4,0.75,0.6), is_mega:false, is_sudden:false, boss_hp:0.0 },
-        2 => WaveDef { name:"Frost Wolf", code:"n00C", hp:35.0, count:6, total_hp:210.0, req_dps:12.0, time_est:17.5, color:Color::srgba(0.85,0.3,0.85,0.8), is_mega:false, is_sudden:false, boss_hp:0.0 },
-        3 => WaveDef { name:"Scout", code:"u003", hp:50.0, count:6, total_hp:300.0, req_dps:18.0, time_est:16.6, color:Color::srgba(0.85,0.5,0.75,0.8), is_mega:false, is_sudden:false, boss_hp:0.0 },
-        4 => WaveDef { name:"Warrior", code:"u000", hp:75.0, count:7, total_hp:525.0, req_dps:28.0, time_est:13.0, color:Color::srgba(0.95,0.25,0.6,0.9), is_mega:false, is_sudden:false, boss_hp:0.0 },
-        5 => WaveDef { name:"Archer", code:"n00K", hp:110.0, count:8, total_hp:880.0, req_dps:32.0, time_est:27.5, color:Color::srgba(0.95,0.5,0.2,0.95), is_mega:false, is_sudden:false, boss_hp:0.0 },
-        6 => WaveDef { name:"Gnoll", code:"n00Q", hp:160.0, count:8, total_hp:1280.0, req_dps:50.0, time_est:25.6, color:Color::srgba(0.9,0.8,0.15,0.95), is_mega:false, is_sudden:false, boss_hp:0.0 },
-        7 => WaveDef { name:"Bandit", code:"n00R", hp:170.0, count:9, total_hp:1530.0, req_dps:70.0, time_est:28.3, color:Color::srgb(0.9,0.6,0.1), is_mega:false, is_sudden:false, boss_hp:0.0 },
-        8 => WaveDef { name:"Necromancer SUDDEN DEATH", code:"n00S", hp:190.0, count:10, total_hp:1900.0, req_dps:120.0, time_est:50.0, color:Color::srgb(0.6,0.1,0.9), is_mega:false, is_sudden:true, boss_hp:0.0 },
-        9 => WaveDef { name:"Dark Mage", code:"n00T", hp:210.0, count:10, total_hp:2100.0, req_dps:180.0, time_est:23.3, color:Color::srgb(0.3,0.2,0.8), is_mega:false, is_sudden:false, boss_hp:0.0 },
-        10 => WaveDef { name:"Ogre Lord MEGA", code:"n00U", hp:250.0, count:9, total_hp:2250.0, req_dps:220.0, time_est:32.7, color:Color::srgb(0.8,0.15,0.15), is_mega:true, is_sudden:false, boss_hp:1800.0 },
-        11 => WaveDef { name:"Demon", code:"n00V", hp:280.0, count:11, total_hp:3080.0, req_dps:280.0, time_est:31.4, color:Color::srgb(1.0,0.2,0.2), is_mega:false, is_sudden:false, boss_hp:0.0 },
-        12 => WaveDef { name:"Dragon Whelp", code:"n00W", hp:310.0, count:12, total_hp:3720.0, req_dps:350.0, time_est:37.7, color:Color::srgb(0.2,0.8,0.3), is_mega:false, is_sudden:false, boss_hp:0.0 },
-        13 => WaveDef { name:"Infernal", code:"n00X", hp:350.0, count:12, total_hp:4200.0, req_dps:450.0, time_est:38.6, color:Color::srgb(1.0,0.4,0.0), is_mega:false, is_sudden:false, boss_hp:0.0 },
-        14 => WaveDef { name:"Pit Lord", code:"n00Y", hp:390.0, count:13, total_hp:5070.0, req_dps:550.0, time_est:44.9, color:Color::srgb(0.5,0.0,0.0), is_mega:false, is_sudden:false, boss_hp:0.0 },
-        15 => WaveDef { name:"Sheep King FINAL", code:"n00Z", hp:420.0, count:15, total_hp:6300.0, req_dps:700.0, time_est:65.0, color:Color::srgb(1.0,0.9,0.0), is_mega:true, is_sudden:false, boss_hp:5000.0 },
+        0 | 1 => w((Wojak, 18, 75.0), Some((Karen, 3, 220.0)), None, 45),
+        2 => w((Wojak, 22, 105.0), Some((Karen, 3, 290.0)), None, 48),
+        3 => w((Zoomer, 20, 95.0), Some((Chad, 3, 310.0)), None, 52),
+        4 => w((Wojak, 24, 155.0), Some((WifiUpir, 4, 400.0)), None, 56),
+        5 => w((AdBlock, 16, 190.0), None, Some((Ucitel, 2800.0)), 100),
+        6 => w((Wojak, 28, 210.0), Some((Influencer, 3, 600.0)), None, 66),
+        7 => w((Zoomer, 24, 190.0), Some((Chad, 4, 680.0)), None, 70),
+        8 => w((WifiUpir, 26, 265.0), Some((Karen, 4, 760.0)), None, 74),
+        9 => w((KopirBot, 30, 230.0), Some((AdBlock, 3, 920.0)), None, 78),
+        10 => w((Optimalizator, 20, 340.0), None, Some((Sef, 6500.0)), 140),
+        11 => w((Wojak, 34, 410.0), Some((Influencer, 4, 1100.0)), None, 90),
+        12 => w((Zoomer, 30, 365.0), Some((Karen, 5, 1250.0)), None, 95),
+        13 => w((Brambora, 32, 470.0), Some((WifiUpir, 4, 1450.0)), None, 100),
+        14 => w((AdBlock, 36, 510.0), Some((Chad, 5, 1650.0)), None, 105),
+        15 => w((KopirBot, 24, 620.0), None, Some((Tchyne, 13500.0)), 190),
+        16 => w((Wojak, 40, 760.0), Some((Influencer, 5, 2000.0)), None, 120),
+        17 => w((Zoomer, 36, 690.0), Some((Chad, 6, 2250.0)), None, 126),
+        18 => w((WifiUpir, 38, 850.0), Some((Optimalizator, 5, 2600.0)), None, 132),
+        19 => w((KopirBot, 42, 790.0), Some((AdBlock, 6, 2950.0)), None, 138),
+        20 => w((Brambora, 28, 1050.0), None, Some((DanovyUrad, 27000.0)), 250),
+        21 => w((Wojak, 46, 1250.0), Some((Karen, 6, 3500.0)), None, 155),
+        22 => w((Zoomer, 42, 1120.0), Some((Chad, 7, 3900.0)), None, 162),
+        23 => w((AdBlock, 44, 1390.0), Some((Influencer, 6, 4500.0)), None, 169),
+        24 => w((WifiUpir, 48, 1520.0), Some((Optimalizator, 7, 5100.0)), None, 176),
+        25 => w((KopirBot, 32, 1750.0), None, Some((Babicka, 52000.0)), 330),
+        26 => w((Wojak, 52, 2050.0), Some((Karen, 7, 5900.0)), None, 195),
+        27 => w((Zoomer, 48, 1850.0), Some((Chad, 8, 6700.0)), None, 205),
+        28 => w((AdBlock, 50, 2300.0), Some((WifiUpir, 8, 7600.0)), None, 215),
+        29 => WaveDef { small: (Wojak, 54, 2600.0), big: Some((Chad, 9, 8700.0)), boss: None, reward: 225, mixed: true },
+        30 => WaveDef { small: (Chad, 40, 3200.0), big: None, boss: Some((Mama, 100000.0)), reward: 0, mixed: true },
+        // po vlne 30: sudden death, vlna 30 bez bosse a s +30 % HP za kazdou dalsi vlnu
         _ => {
-            if wave <= UNIT_COUNT as u32 { return unit_wave(wave); } // vlny 16-34 podle posilanych jednotek
-            // vlna 35+: navazuje na vlnu 34, +12 % HP za vlnu (k tomu pojistka LATE_ROUND), +1 creep za 2 vlny, max 40 kusu (mobil)
-            let n = wave.saturating_sub(UNIT_COUNT as u32) as f32; // saturating: vlna 0 nepadne na podteceni
-            let mul = 1.12_f32.powf(n);
-            let count = (WAVE_COUNT_LATE + (n as usize) / 2).min(40);
-            let hp = unit_wave(UNIT_COUNT as u32).hp * mul;
-            WaveDef { name:"Infinite", code:"n00Z", hp, count, total_hp: hp * count as f32, req_dps: 700.0 * mul, time_est:65.0, color:Color::srgb(1.0,1.0,1.0), is_mega:true, is_sudden:false, boss_hp: hp * WAVE_BOSS_MUL }
+            let mul = ENDLESS_HP_GROWTH.powi((wave - LAST_WAVE) as i32);
+            WaveDef { small: (Chad, 40, 3200.0 * mul), big: Some((Zombi, 6, 9000.0 * mul)), boss: None, reward: 0, mixed: true }
         }
     }
 }
 
-// VLNY 16-34 podle posilanych jednotek: vlna N = 15 creepu jednotky N (jmeno, barva, HP x WAVE_HP_SCALE).
-// Ladeni (2026-11-28, model ekonomiky + bot vs bot): HP vlny ma byt zhruba 1x (vlna 20) az 2,2x (vlna 30)
-// tolik, kolik ma hrac goldu ve vezich; od vlny 31 pojistka (LATE_ROUND) zapas rychle ukonci.
-const WAVE_HP_SCALE: f32 = 0.25;   // HP creepu vlny = HP jednotky x tolik (spawn ho jeste nasobi skalou vlny, max 2,2)
-const WAVE_COUNT_LATE: usize = 15; // kolik creepu ma kazda vlna 16-34
-const WAVE_BOSS_MUL: f32 = 3.0;    // HP mega bosse na konci kazde 5. vlny = HP creepu x tolik
+pub fn is_boss_wave(wave: u32) -> bool { wave_def(wave).boss.is_some() }
 
-fn unit_wave(wave: u32) -> WaveDef {
-    let u = get_unit_def(wave as u8);
-    let hp = u.hp * WAVE_HP_SCALE;
-    let boss = wave % 5 == 0;
-    WaveDef { name: u.name, code: "n00Z", hp, count: WAVE_COUNT_LATE, total_hp: hp * WAVE_COUNT_LATE as f32, req_dps: 700.0, time_est: 65.0, color: u.color, is_mega: boss, is_sudden: false, boss_hp: if boss { hp * WAVE_BOSS_MUL } else { 0.0 } }
+// smisene vlny (29+): typ creepa podle poradi, strida se vsech 10 typu
+pub fn mixed_type(i: u32) -> CreepType {
+    use CreepType::*;
+    [Wojak, Zoomer, Zombi, Karen, WifiUpir, Influencer, AdBlock, KopirBot, Brambora, Chad][(i % 10) as usize]
 }
 
-pub fn get_creep_color_and_hp(wave: u32) -> (Color, f32) {
-    let wd = get_wave_def(wave);
-    (wd.color, wd.hp)
-}
-
-// === JEDNOTKY K ODESLANI (panel S) ===
-pub const UNIT_COUNT: u8 = 34; // kolik jednotek je v tabulce nize (panel S se podle toho postavi)
-
-// druhy jednotek serazene podle ceny (poradi v panelu S); ID zustavaji stabilni, nove jednotky maji 31+
-pub fn units_by_cost() -> Vec<u8> {
-    let mut kinds: Vec<u8> = (1..=UNIT_COUNT).collect();
-    kinds.sort_by_key(|&k| (get_unit_def(k).cost, k));
-    kinds
-}
-
-pub struct UnitDef {
+// === 4.4 POSILANE JEDNOTKY ===
+pub struct SendDef {
     pub name: &'static str,
-    pub cost: i32,                    // cena za odeslani
-    pub hp: f32,
-    pub income: i32,                  // zakladni +income kazdych 7s, kdyz ji posles (viz income_multiplier)
-    pub speed_mul: f32,               // nasobek rychlosti chuze (1.0 = bezna)
-    pub radius: f32,
-    pub color: Color,                 // barva kolecka (jednotky bez obrazku)
-    pub image: Option<&'static str>,  // obrazek
+    pub cost: i32,
+    pub income: i32,       // +gold za tick (napoprve az pri dalsim ticku)
+    pub hp_pct: f32,       // HP = tolik x HP maleho creepa aktualni vlny
+    pub leak: u32,         // kolik zivotu stoji, kdyz projde
+    pub creep: CreepType,  // jak vypada a co umi
+    pub mini_boss: bool,   // Mini-Boss Ratio: max 2 za vlnu, vetsi
 }
 
-// Zvlastni schopnosti (v komentari) zatim NEJSOU naimplementovane, jen rychlost (speed_mul).
-pub fn get_unit_def(kind: u8) -> UnitDef {
+pub const SEND_COUNT: u8 = 10;
+pub const MAX_SENDS_PER_WAVE: u32 = 12;
+pub const MAX_MINI_BOSSES_PER_WAVE: u32 = 2;
+
+pub fn send_def(kind: u8) -> SendDef {
+    use CreepType::*;
+    let s = |name, cost, income, hp_pct, leak, creep| SendDef { name, cost, income, hp_pct, leak, creep, mini_boss: false };
     match kind {
-        1 => UnitDef { name:"DAVID", cost:5, hp:10.0, income:1, speed_mul:1.0, radius:16.0, color:Color::srgb(0.9,0.9,0.9), image:Some("creeps/creep1.png") },
-        2 => UnitDef { name:"DAMIAN", cost:10, hp:20.0, income:2, speed_mul:1.0, radius:16.0, color:Color::srgb(0.9,0.9,0.9), image:Some("creeps/creep2.png") },
-        3 => UnitDef { name:"OLGA", cost:15, hp:30.0, income:2, speed_mul:1.0, radius:12.0, color:Color::srgb(0.95,0.5,0.7), image:Some("creeps/creep3.png") },
-        4 => UnitDef { name:"KAMIL", cost:25, hp:50.0, income:3, speed_mul:1.0, radius:13.0, color:Color::srgb(0.95,0.6,0.15), image:Some("creeps/creep4.png") },
-        5 => UnitDef { name:"LUKAS", cost:40, hp:80.0, income:4, speed_mul:1.0, radius:14.0, color:Color::srgb(0.2,0.85,0.85), image:Some("creeps/creep5.png") },
-        // 6 Rogue: rychly 120 %, tezko trefitelny
-        6 => UnitDef { name:"ROGUE", cost:60, hp:120.0, income:5, speed_mul:1.2, radius:16.0, color:Color::WHITE, image:Some("creeps/creep6.png") },
-        // 7 Berserker: enrage pod 30 % HP +30 % rychlost
-        7 => UnitDef { name:"BERSERK", cost:85, hp:180.0, income:6, speed_mul:1.0, radius:17.0, color:Color::WHITE, image:Some("creeps/creep7.png") },
-        // 8 Frost Archer: strili zpet - slow 5 % na veze 1 s
-        8 => UnitDef { name:"ARCHER", cost:110, hp:250.0, income:7, speed_mul:1.0, radius:18.0, color:Color::WHITE, image:Some("creeps/creep8.png") },
-        // 9 Wyvern: letajici - trefi ho jen Air veze (Sniper, Frost, Fire, Shock), Cannon ne
-        9 => UnitDef { name:"WYVERN", cost:140, hp:330.0, income:8, speed_mul:1.0, radius:18.0, color:Color::WHITE, image:Some("creeps/air9.png") },
-        // 10 Ogre: tezky - 50 % resist na push, 20 % resist na slow
-        10 => UnitDef { name:"OGRE", cost:180, hp:440.0, income:9, speed_mul:1.0, radius:20.0, color:Color::WHITE, image:Some("creeps/creep10.png") },
-        // 11 Gryphon: letajici rychly 130 %
-        11 => UnitDef { name:"GRYPHON", cost:220, hp:550.0, income:10, speed_mul:1.3, radius:15.0, color:Color::srgb(0.9,0.75,0.3), image:Some("creeps/air11.png") },
-        // 12 Priest: healer - leci 2 HP/s vsechny creepy v 200 radius
-        12 => UnitDef { name:"PRIEST", cost:270, hp:690.0, income:11, speed_mul:1.0, radius:15.0, color:Color::srgb(0.95,0.9,0.95), image:Some("creeps/creep12.png") },
-        // 13 Captain: aura +15 % max HP vsem creepum v 250 radius
-        13 => UnitDef { name:"CAPTAIN", cost:330, hp:870.0, income:12, speed_mul:1.0, radius:16.0, color:Color::srgb(0.3,0.5,0.95), image:Some("creeps/creep13.png") },
-        // 14 Sorceress: magic immune 50 % - jen 50 % dmg z Fire a Frost
-        14 => UnitDef { name:"SORCER.", cost:400, hp:1100.0, income:13, speed_mul:1.0, radius:17.0, color:Color::srgb(0.7,0.3,0.9), image:Some("creeps/creep14.png") },
-        // 15 First Boss: immune stun, 50 % push resist, enrage pod 30 % HP +50 % rychlost + cerveny pulz
-        15 => UnitDef { name:"BOSS", cost:500, hp:1400.0, income:15, speed_mul:1.0, radius:24.0, color:Color::srgb(0.9,0.15,0.15), image:Some("creeps/boss1.png") },
-        // 16-30 (late game): zatim JEN staty, Air a rychlost; zvlastni schopnosti se doplni po jedne
-        // 16 Enchantress: mana burn 5 veze v 300 radius
-        16 => UnitDef { name:"ENCHANT", cost:600, hp:1750.0, income:16, speed_mul:1.0, radius:18.0, color:Color::srgb(0.85,0.4,0.85), image:None },
-        // 17 Necromancer: na smrt 2x Skeleton 80 HP
-        17 => UnitDef { name:"NECRO", cost:700, hp:2050.0, income:17, speed_mul:1.0, radius:18.0, color:Color::srgb(0.4,0.7,0.4), image:None },
-        // 18 Frost Wyrm (Air): frost breath aura, slow na veze v 250 radius
-        18 => UnitDef { name:"WYRM", cost:800, hp:2400.0, income:18, speed_mul:1.0, radius:20.0, color:Color::srgb(0.5,0.8,1.0), image:None },
-        // 19 Infernal: fire aura 5 dmg/s vezim v 200 radius, 30 % resist Fire
-        19 => UnitDef { name:"INFERNAL", cost:900, hp:2750.0, income:19, speed_mul:1.0, radius:20.0, color:Color::srgb(1.0,0.4,0.1), image:None },
-        // 20 Second Boss: 50 % slow a push resist, immune stun, slam 10 % HP vezim na 0.5 s
-        20 => UnitDef { name:"BOSS 2", cost:1000, hp:3100.0, income:20, speed_mul:1.0, radius:26.0, color:Color::srgb(0.7,0.1,0.1), image:None },
-        // 21 Chimaera (Air, rychla 120 %): dual attack
-        21 => UnitDef { name:"CHIMERA", cost:1200, hp:3750.0, income:22, speed_mul:1.2, radius:20.0, color:Color::srgb(0.9,0.6,0.2), image:None },
-        // 22 Doom Guard: cleave 50 % dmg okolnim creepum v 100 radius
-        22 => UnitDef { name:"DOOM", cost:1400, hp:4500.0, income:24, speed_mul:1.0, radius:22.0, color:Color::srgb(0.6,0.1,0.3), image:None },
-        // 23 Lich: na smrt Frost Nova 150 radius
-        23 => UnitDef { name:"LICH", cost:1600, hp:5200.0, income:26, speed_mul:1.0, radius:22.0, color:Color::srgb(0.5,0.7,0.9), image:None },
-        // 24 Pit Lord: stomp kazdych 5 s, stun 0.5 s vezim v 300 radius, 100 % push resist
-        24 => UnitDef { name:"PITLORD", cost:1800, hp:5900.0, income:28, speed_mul:1.0, radius:24.0, color:Color::srgb(0.5,0.2,0.1), image:None },
-        // 25 Third Boss: 30 % resist (slow/push/burn/poison), enrage 40 % HP +50 % rychlost
-        25 => UnitDef { name:"BOSS 3", cost:2000, hp:6700.0, income:30, speed_mul:1.0, radius:28.0, color:Color::srgb(0.9,0.3,0.1), image:None },
-        // 26 Phoenix (Air): rebirth po smrti s 50 % HP, fire aura 8 dmg/s
-        26 => UnitDef { name:"PHOENIX", cost:2300, hp:7800.0, income:32, speed_mul:1.0, radius:24.0, color:Color::srgb(1.0,0.55,0.1), image:None },
-        // 27 Frostmourne Knight: lifesteal aura, +15 % HP aura jako Captain
-        27 => UnitDef { name:"KNIGHT", cost:2600, hp:8900.0, income:34, speed_mul:1.0, radius:24.0, color:Color::srgb(0.3,0.4,0.8), image:None },
-        // 28 Archlich: na smrt 3x Skeleton 150 HP + Frost Nova 200 radius
-        28 => UnitDef { name:"ARCHLICH", cost:3000, hp:10500.0, income:36, speed_mul:1.0, radius:26.0, color:Color::srgb(0.3,0.5,0.7), image:None },
-        // 29 Void Walker (Air): 20 % dodge, magic resist
-        29 => UnitDef { name:"VOID", cost:3400, hp:12000.0, income:38, speed_mul:1.0, radius:26.0, color:Color::srgb(0.3,0.1,0.5), image:None },
-        // 30 Final Boss: immune stun, 70 % resisty, enrage 40 % HP +50 % rychlost, na smrt exploze 500 dmg vezim v 300 radius
-        30 => UnitDef { name:"FINAL", cost:4000, hp:14400.0, income:40, speed_mul:1.0, radius:32.0, color:Color::srgb(0.9,0.05,0.05), image:None },
-        // === 31-34: pozdni jednotky pro vlny 30+ (vlny 31-34 jsou podle nich) ===
-        // 31 Titan: obri tank - pomaly 85 %, immune stun, 80 % resist push, 50 % resist slow
-        31 => UnitDef { name:"TITAN", cost:4600, hp:16800.0, income:42, speed_mul:0.85, radius:30.0, color:Color::srgb(0.55,0.55,0.6), image:None },
-        // 32 Banshee (Air, rychla 125 %): Frost a Fire jen 50 % dmg, svetly shimmer
-        32 => UnitDef { name:"BANSHEE", cost:5300, hp:19600.0, income:44, speed_mul:1.25, radius:22.0, color:Color::srgb(0.75,0.85,1.0), image:None },
-        // 33 Hierophant: velky lecitel - leci 60 HP/s vsechny creepy v 250 radius
-        33 => UnitDef { name:"HIEROPH.", cost:6100, hp:22900.0, income:46, speed_mul:1.0, radius:24.0, color:Color::srgb(1.0,0.95,0.6), image:None },
-        // 34 Overlord: aura +15 % max HP creepum v 250 radius, enrage pod 40 % HP +50 % rychlost
-        34 => UnitDef { name:"OVERLORD", cost:7000, hp:26700.0, income:48, speed_mul:1.0, radius:32.0, color:Color::srgb(0.35,0.05,0.25), image:None },
-        _ => get_unit_def(30),
+        1 => s("Minion z Chatu", 25, 1, 0.70, 1, Wojak),
+        2 => s("Zoomer Express", 45, 1, 0.65, 1, Zoomer),
+        3 => s("Karen Balicek", 80, 2, 1.30, 1, Karen),
+        4 => s("Wi-Fi Upir", 120, 3, 1.15, 1, WifiUpir),
+        5 => s("AdBlock Rytir", 165, 4, 1.20, 2, AdBlock),
+        6 => s("Kopirovaci Bot", 220, 5, 1.10, 2, KopirBot),
+        7 => s("Influencer Squad", 300, 6, 1.20, 2, Influencer),
+        8 => s("Chad Kuryr", 400, 8, 1.50, 2, Chad),
+        9 => s("Troll Tank", 550, 10, 2.00, 2, Zombi),
+        _ => SendDef { name: "Mini-Boss Ratio", cost: 800, income: 13, hp_pct: 3.00, leak: 3, creep: Chad, mini_boss: true },
     }
 }
 
-// letajici jednotky (Wyvern, Gryphon): lete rovne a trefi je jen Air veze
-pub fn is_air(kind: u8) -> bool { matches!(kind, 9 | 11 | 18 | 21 | 26 | 29 | 32) }
+// HP poslane jednotky: podil HP maleho creepa vlny, ktera prave bezi (pred 1. vlnou podle 1. vlny)
+pub fn send_hp(kind: u8, wave: u32) -> f32 {
+    send_def(kind).hp_pct * wave_def(wave.max(1)).small.2
+}
 
-// AURY NA VEZE: veze v radiu creepu dostanou upravy (nasobky; 1.0 = beze zmeny); random_target = sance na nahodny cil; stomp = kazdych stomp_every s omraceni stomp_stun s
-pub struct TowerAuraDef { pub radius: f32, pub random_target: f32, pub dmg_mul: f32, pub range_mul: f32, pub rate_mul: f32, pub stomp_every: f32, pub stomp_stun: f32 }
-pub fn tower_aura_for(kind: u8) -> Option<TowerAuraDef> {
+// === 4.1 EKONOMIKA ===
+pub const INCOME_TICK_SECS: f32 = 7.0;
+pub const BASE_INCOME: i32 = 3;
+pub const INCOME_CAP: i32 = 40;      // max gold za tick (base + sendy)
+pub const BOSS_KILL_GOLD: i32 = 150;
+pub const SELL_BEFORE_WAVE: f32 = 0.70;
+pub const SELL_DURING_WAVE: f32 = 0.50;
+pub const DIAMOND_GOLD: i32 = 400;   // boss, kdyz uz diamant nepotrebujes, da misto nej 400 goldu
+
+pub fn tick_income(income: i32) -> i32 { income.min(INCOME_CAP) }
+
+// === 2. ZIVOTY ===
+pub const LEAK_SMALL: u32 = 1;
+pub const LEAK_BIG: u32 = 2;
+pub const LEAK_BOSS: u32 = 3;
+pub const HARSH_LEAK_WAVE: u32 = 26; // od teto vlny projity creep bere aspon 2 zivoty, ale souperi prida o 1 mene
+
+// (kolik zivotu ztrati ten, komu creep prosel, kolik ziska souper)
+pub fn leak_lives(leak_cost: u32, wave: u32) -> (u32, u32) {
+    if wave >= HARSH_LEAK_WAVE { let lost = leak_cost.max(2); (lost, lost - 1) } else { (leak_cost, leak_cost) }
+}
+
+// === 5. DAMAGE TYPY ===
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DmgType { Physical, Pierce, Magic, Explosive, True }
+
+pub fn tower_dmg_type(kind: u8) -> DmgType {
+    use DmgType::*;
     match kind {
-        19 => Some(TowerAuraDef { radius: 200.0, random_target: 0.25, dmg_mul: 1.0, range_mul: 1.0, rate_mul: 1.0, stomp_every: 0.0, stomp_stun: 0.0 }), // Infernal: 25 % nahodny cil
-        24 => Some(TowerAuraDef { radius: 300.0, random_target: 0.0, dmg_mul: 1.0, range_mul: 1.0, rate_mul: 1.0, stomp_every: 5.0, stomp_stun: 0.5 }), // Pit Lord: stomp
-        26 => Some(TowerAuraDef { radius: 120.0, random_target: 0.0, dmg_mul: 0.75, range_mul: 1.0, rate_mul: 1.0, stomp_every: 0.0, stomp_stun: 0.0 }), // Phoenix: -25 % dmg, maly radius ODHAD
-        27 => Some(TowerAuraDef { radius: 200.0, random_target: 0.0, dmg_mul: 1.0, range_mul: 0.75, rate_mul: 1.0, stomp_every: 0.0, stomp_stun: 0.0 }), // Knight: dosah -25 % ODHAD
-        30 => Some(TowerAuraDef { radius: 300.0, random_target: 0.0, dmg_mul: 0.6, range_mul: 0.7, rate_mul: 0.7, stomp_every: 0.0, stomp_stun: 0.0 }), // Final Boss: mega aura, rychlost -30 %, dmg -40 %, dosah -30 % ODHAD
-        _ => None,
+        1 | 6 | 11 => Explosive,                                 // Bramboromet, Toustovac, Katapult
+        5 | 10 => Pierce,                                        // Kaktus, Sniper
+        4 | 7 | 8 | 9 | 15 => Magic,                             // Router, Muchomurka, Mrazak, Tesla, Danovy Urad
+        16 | 25 => True,                                         // Chuck Norris, Admin Banhammer (cisty dmg jen u specialek)
+        18 | 22 | 23 | 24 => Magic,                              // Shrek, Haxor, Karen, Cerna Dira
+        _ => Physical,                                           // Nerfka, Babicka, DJ, Pepa, Kasicka, Tchyne, Gigachad, Doge, Trollface
     }
 }
 
-// SHIMMER (vizual odolnosti): pulzujici barevny kruh okolo tela; period = delka jednoho pulzu v sekundach
-pub struct ShimmerDef { pub color: Color, pub period: f32 }
-pub fn shimmer_for(kind: u8) -> Option<ShimmerDef> {
-    match kind {
-        14 => Some(ShimmerDef { color: Color::srgba(0.7, 0.3, 0.9, 0.25), period: 0.8 }), // Sorceress
-        32 => Some(ShimmerDef { color: Color::srgba(0.75, 0.85, 1.0, 0.25), period: 0.6 }), // Banshee
-        _ => None,
+pub const DMG_STRONG: f32 = 1.25;
+pub const DMG_WEAK: f32 = 0.75;
+pub const SLOW_CAP: f32 = 0.50;     // spolecny limit zpomaleni
+pub const BOSS_CC_MUL: f32 = 0.5;   // bossove: o 50 % kratsi CC
+
+// co zasahovany cil ma (sbira se z komponent creepa)
+#[derive(Clone, Copy, Default)]
+pub struct Target {
+    pub armored: bool,
+    pub fast: bool,
+    pub regen: bool,
+    pub shielded: bool,     // ma jeste stit
+    pub magic_resist: bool,
+    pub boss: bool,
+    pub weak_ice: bool,     // Zoomer
+    pub weak_fire: bool,    // Tlusty Zombi
+    pub phys_guard: f32,    // Pan Ucitel: docasna redukce fyzickeho dmg (0.35 = -35 %)
+    pub true_bonus: f32,    // Mama ve 3. fazi: +20 % cisteho dmg
+}
+
+impl Target {
+    pub fn of(t: CreepType) -> Self {
+        let d = creep_def(t);
+        Target {
+            armored: d.armored, fast: d.fast, magic_resist: d.magic_resist,
+            regen: t == CreepType::WifiUpir, weak_ice: t == CreepType::Zoomer, weak_fire: t == CreepType::Zombi,
+            ..Default::default()
+        }
     }
 }
 
-// AURA (Captain): creepum v radiu zvysi max HP o hp_bonus (0.15 = +15 %), dokud je Captain nazivu a blizko
-pub struct AuraDef { pub radius: f32, pub hp_bonus: f32 }
-pub fn aura_for(kind: u8) -> Option<AuraDef> {
-    match kind {
-        13 => Some(AuraDef { radius: 250.0, hp_bonus: 0.15 }), // Captain
-        34 => Some(AuraDef { radius: 250.0, hp_bonus: 0.15 }), // Overlord
-        _ => None,
-    }
+// nasobek damage: silny zasah 125 %, slaby 75 %, kdyz plati oboji, zustane 100 %
+pub fn damage_mul(tower_kind: u8, t: &Target) -> f32 {
+    use DmgType::*;
+    let dt = tower_dmg_type(tower_kind);
+    let (strong, weak) = match dt {
+        Physical => (t.fast, t.armored),
+        Pierce => (t.armored || t.boss, t.shielded),
+        Magic => (t.armored || t.regen, t.magic_resist),
+        Explosive => (false, t.boss),
+        True => (false, false),
+    };
+    let mut m = match (strong, weak) { (true, false) => DMG_STRONG, (false, true) => DMG_WEAK, _ => 1.0 };
+    if (t.weak_ice && tower_kind == crate::special::MRAZAK) || (t.weak_fire && tower_kind == crate::special::TOUSTOVAC) { m *= DMG_STRONG; }
+    if dt == Physical { m *= 1.0 - t.phys_guard; }
+    if dt == True { m *= 1.0 + t.true_bonus; }
+    m
 }
 
-// ZPETNA STRELBA (Frost Archer): kazdych interval s zasahne nejblizsi vez v dosahu a zpomali jeji strelbu o slow na secs sekund
-pub struct ShootBackDef { pub range: f32, pub interval: f32, pub slow: f32, pub secs: f32 }
-pub fn shoot_back_for(kind: u8) -> Option<ShootBackDef> {
-    match kind {
-        8 => Some(ShootBackDef { range: 150.0, interval: 1.5, slow: 0.05, secs: 1.0 }), // Frost Archer (interval > secs, aby se ledovy efekt mezi zasahy stihl vypnout)
-        _ => None,
-    }
-}
+// === 4.2 DIAMANTY (domluveno 2026-11-28) ===
+// Diamant dava zabity boss (kdyz ho propustis, dostane ho souper). Postavit Special stoji gold + 1 diamant,
+// upgrade Special na R2 a na R3 kazdy dalsi gold + 1 diamant. Kdo uz diamanty nepotrebuje, dostane misto nej 400 goldu.
+pub const SPECIAL_DIAMOND_COST: i32 = 1;
 
-// LECENI (Priest): kazdou sekundu doplni hps HP vsem creepum v radiu (krome sebe)
-pub struct HealDef { pub radius: f32, pub hps: f32 }
-pub fn heal_for(kind: u8) -> Option<HealDef> {
-    match kind {
-        12 => Some(HealDef { radius: 200.0, hps: 8.0 }), // Priest (asi 1 % jeho HP za sekundu)
-        33 => Some(HealDef { radius: 250.0, hps: 60.0 }), // Hierophant
-        _ => None,
-    }
-}
-
-// ODOLNOSTI: stun_immune = nejde omracit, push = podil odhozeni, ktery jednotka ignoruje (0.5 = pushne ji jen o pulku), slow = podil zpomaleni, ktery ignoruje
-pub struct ResistDef { pub stun_immune: bool, pub push: f32, pub slow: f32, pub dmg_mul: [f32; 8] } // dmg_mul: [-, Arrow, Cannon, Frost, Fire, Poison, Sniper, Shock]
-pub fn resist_for(kind: u8) -> Option<ResistDef> {
-    match kind {
-        10 => Some(ResistDef { stun_immune: false, push: 0.5, slow: 0.2, dmg_mul: [1.0; 8] }), // Ogre: tank, 50 % push resist, 20 % slow resist
-        14 => Some(ResistDef { stun_immune: false, push: 0.0, slow: 0.0, dmg_mul: [1.0, 1.0, 1.0, 0.5, 0.5, 1.0, 1.0, 1.0] }), // Sorceress: Frost a Fire jen 50 % damage
-        15 => Some(ResistDef { stun_immune: true, push: 0.5, slow: 0.0, dmg_mul: [1.0; 8] }), // Boss
-        20 => Some(ResistDef { stun_immune: true, push: 0.5, slow: 0.5, dmg_mul: [1.0; 8] }), // Second Boss
-        25 => Some(ResistDef { stun_immune: false, push: 0.3, slow: 0.3, dmg_mul: [1.0, 1.0, 1.0, 1.0, 0.7, 0.7, 1.0, 1.0] }), // Third Boss: 30 % slow/push, Fire a Poison dmg -30 %
-        30 => Some(ResistDef { stun_immune: true, push: 0.7, slow: 0.7, dmg_mul: [1.0, 1.0, 1.0, 1.0, 0.3, 0.3, 1.0, 1.0] }), // Final Boss: 70 % slow/push, Fire a Poison dmg -70 %
-        19 => Some(ResistDef { stun_immune: false, push: 0.0, slow: 0.0, dmg_mul: [1.0, 1.0, 1.0, 1.0, 0.7, 1.0, 1.0, 1.0] }), // Infernal: Fire dmg -30 %
-        24 => Some(ResistDef { stun_immune: false, push: 1.0, slow: 0.0, dmg_mul: [1.0; 8] }), // Pit Lord: 100 % push resist
-        31 => Some(ResistDef { stun_immune: true, push: 0.8, slow: 0.5, dmg_mul: [1.0; 8] }), // Titan
-        32 => Some(ResistDef { stun_immune: false, push: 0.0, slow: 0.0, dmg_mul: [1.0, 1.0, 1.0, 0.5, 0.5, 1.0, 1.0, 1.0] }), // Banshee: Frost a Fire jen 50 %
-        _ => None,
-    }
-}
-
-// ENRAGE (zurivost): pod hp_frac max HP dostane jednotka +speed_bonus rychlosti a +size_bonus velikosti (0.30 = +30 %), flash = barva probliknuti
-pub struct EnrageDef { pub hp_frac: f32, pub speed_bonus: f32, pub size_bonus: f32, pub flash: Color }
-
-pub fn enrage_for(kind: u8) -> Option<EnrageDef> {
-    match kind {
-        7 => Some(EnrageDef { hp_frac: 0.30, speed_bonus: 0.30, size_bonus: 0.30, flash: Color::srgba(1.0, 0.1, 0.1, 0.65) }), // Berserker
-        15 => Some(EnrageDef { hp_frac: 0.30, speed_bonus: 0.50, size_bonus: 0.0, flash: Color::srgba(1.0, 0.1, 0.1, 0.65) }), // Boss: jen rychlost, velikost se nemeni
-        25 => Some(EnrageDef { hp_frac: 0.40, speed_bonus: 0.50, size_bonus: 0.0, flash: Color::srgba(1.0, 0.1, 0.1, 0.65) }), // Third Boss
-        30 => Some(EnrageDef { hp_frac: 0.40, speed_bonus: 0.50, size_bonus: 0.0, flash: Color::srgba(1.0, 0.1, 0.1, 0.65) }), // Final Boss
-        34 => Some(EnrageDef { hp_frac: 0.40, speed_bonus: 0.50, size_bonus: 0.0, flash: Color::srgba(1.0, 0.1, 0.1, 0.65) }), // Overlord
-        _ => None,
-    }
-}
-
-// INCOME SCALING (proti nekonecnemu snowballu): kolikata odeslana jednotka celkem -> nasobek jejiho income
-// (do kolika odeslani, nasobek); po poslednim pasmu uz zadny dalsi income
-// (do kolikateho odeslani TETO jednotky, nasobek income): 1-50 = 100 %, 51-100 = 80 %, 101-200 = 60 %, 201-300 = 35 %, 301-500 = 15 %, dal 0 %
-const INCOME_TIERS: [(u32, f32); 5] = [(50, 1.0), (100, 0.8), (200, 0.6), (300, 0.35), (500, 0.15)];
-
-pub fn income_multiplier(sent_before: u32) -> f32 {
-    for (limit, mul) in INCOME_TIERS {
-        if sent_before < limit { return mul; }
-    }
-    0.0
+// kolik diamantu jeste strana potrebuje, aby mela obe Special veze z balicku na R3
+// (ranks = nejvyssi rank postavene Special veze kazdeho druhu z balicku, 0 = nepostavena)
+pub fn diamonds_needed(ranks: &[u32]) -> i32 {
+    ranks.iter().map(|&r| 3 - r.min(3) as i32).sum()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // HP normalniho creepa tak, jak ho spawne kolo (skala vlny, sudden death, pojistka)
-    fn creep_hp(wave: u32) -> f32 {
-        let w = get_wave_def(wave);
-        let scale = (1.0 + wave as f32 * crate::constants::CREEP_GROWTH_PER_WAVE).min(crate::constants::CREEP_GROWTH_MAX_SCALE);
-        let late = if wave <= crate::constants::LATE_ROUND { 1.0 } else { crate::constants::LATE_ROUND_HP_GROWTH.powi((wave - crate::constants::LATE_ROUND) as i32) };
-        w.hp * scale * late * if w.is_sudden { 2.0 } else { 1.0 }
+    #[test]
+    fn waves_follow_the_gdd_table() {
+        assert_eq!(wave_def(1).small, (CreepType::Wojak, 18, 75.0));
+        assert_eq!(wave_def(5).boss, Some((BossKind::Ucitel, 2800.0)));
+        assert_eq!(wave_def(30).boss, Some((BossKind::Mama, 100000.0)));
+        assert_eq!((1..=30).filter(|&w| is_boss_wave(w)).collect::<Vec<_>>(), vec![5, 10, 15, 20, 25, 30]);
+        assert!((wave_def(32).small.2 - 3200.0 * 1.3 * 1.3).abs() < 0.5); // sudden death +30 % za vlnu
     }
 
     #[test]
-    fn waves_get_stronger_every_round_up_to_forty() {
-        for wave in 2..=40 {
-            if wave == 9 { continue; } // vlna 8 je sudden death (dvojnasobne HP), vlna 9 je zase normalni
-            assert!(creep_hp(wave) > creep_hp(wave - 1), "vlna {} neni silnejsi nez {}", wave, wave - 1);
-        }
+    fn small_creeps_get_stronger_over_four_waves() {
+        // vlny se stridaji (rychli Zoomeri maji mene HP), ale kazda vlna musi byt silnejsi nez 4 vlny pred ni
+        for w in 5..=30 { assert!(wave_def(w).small.2 > wave_def(w - 4).small.2, "vlna {}", w); }
     }
 
     #[test]
-    fn wave_thirty_stays_in_a_playable_range() {
-        // ladeno na ~1x (vlna 20) az ~2x (vlna 30) goldu ve vezich; driv mela vlna 30 creepy po 334 000 HP
-        assert!(creep_hp(20) < 3_000.0);
-        assert!(creep_hp(30) < 15_000.0);
-        assert!(creep_hp(36) > 3.0 * creep_hp(30)); // pojistka po 30. vlne
+    fn send_units_match_gdd_4_4() {
+        assert_eq!((send_def(1).cost, send_def(1).income, send_def(1).leak), (25, 1, 1));
+        assert_eq!((send_def(10).cost, send_def(10).income, send_def(10).leak), (800, 13, 3));
+        assert!(send_def(10).mini_boss);
+        assert!((send_hp(1, 1) - 52.5).abs() < 0.01); // 70 % z 75 HP
     }
 
     #[test]
-    fn pricier_units_never_give_less_hp_per_gold() {
-        let kinds = units_by_cost();
-        assert_eq!(kinds.len(), UNIT_COUNT as usize);
-        for pair in kinds.windows(2) {
-            let (a, b) = (get_unit_def(pair[0]), get_unit_def(pair[1]));
-            assert!(b.hp / b.cost as f32 >= a.hp / a.cost as f32 - 0.01, "{} ma mene HP za gold nez {}", b.name, a.name);
-        }
+    fn income_is_capped_at_forty_per_tick() {
+        assert_eq!(tick_income(3), 3);
+        assert_eq!(tick_income(55), 40);
     }
 
     #[test]
-    fn every_unit_has_its_own_definition() {
-        let mut names: Vec<&str> = (1..=UNIT_COUNT).map(|k| get_unit_def(k).name).collect();
-        names.sort_unstable();
-        names.dedup();
-        assert_eq!(names.len(), UNIT_COUNT as usize);
+    fn from_wave_26_a_leak_costs_two_and_gives_one() {
+        assert_eq!(leak_lives(LEAK_SMALL, 25), (1, 1));
+        assert_eq!(leak_lives(LEAK_SMALL, 26), (2, 1));
+        assert_eq!(leak_lives(LEAK_BOSS, 30), (3, 2));
+    }
+
+    #[test]
+    fn damage_types_are_strong_and_weak_per_gdd_5() {
+        let karen = Target::of(CreepType::Karen);
+        assert_eq!(damage_mul(crate::special::BABICKA, &karen), DMG_WEAK);   // fyzicke na brneni
+        assert_eq!(damage_mul(crate::special::SNIPER, &karen), DMG_STRONG);  // pruzarne na brneni
+        let zoomer = Target::of(CreepType::Zoomer);
+        assert_eq!(damage_mul(crate::special::NERFKA, &zoomer), DMG_STRONG); // fyzicke na rychle
+        let boss = Target { boss: true, ..Default::default() };
+        assert_eq!(damage_mul(crate::special::KATAPULT, &boss), DMG_WEAK);   // vybusne na bosse
+        assert_eq!(damage_mul(crate::special::CHUCK_NORRIS, &karen), 1.0);   // cisty dmg vsem stejne
+        let shield = Target { shielded: true, ..Default::default() };
+        assert_eq!(damage_mul(crate::special::SNIPER, &shield), DMG_WEAK);   // pruzarne na stit
+    }
+
+    #[test]
+    fn diamonds_are_needed_until_both_specials_are_rank_three() {
+        assert_eq!(diamonds_needed(&[0, 0]), 6);
+        assert_eq!(diamonds_needed(&[3, 1]), 2);
+        assert_eq!(diamonds_needed(&[3, 3]), 0);
     }
 }

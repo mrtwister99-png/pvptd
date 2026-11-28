@@ -46,7 +46,7 @@ pub fn get_tower_def(kind: u8, level: u32) -> TowerDef {
         * crate::constants::TOWER_RANGE_SCALE;
     def.splash *= crate::constants::TOWER_RANGE_SCALE;
     if kind == crate::special::TESLA {
-        def.chain = if level >= 7 { 4 } else { 2 };
+        def.chain = if level >= 7 { 4 } else { 2 }; // + prvni zasah = 3 cile, na R7 5 cilu (GDD 7)
     } else if kind == crate::special::KAKTUS && level >= 7 {
         def.dot_dps = 10.0;
     } else if kind == crate::special::PEPA && level >= 7 {
