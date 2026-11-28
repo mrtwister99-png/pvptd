@@ -1,12 +1,12 @@
 // BOT (souper v 1v1): hraje se stejnymi pravidly jako hrac.
-// Kazdych BOT_THINK_SECS: 1) spoji dvojici stejnych vezi, 2) postavi vez do sveho bludiste, 3) posle jednotku.
+// Kazdych BOT_THINK_SECS: 1) vylepsi vez za gold, 2) postavi vez do sveho bludiste, 3) posle jednotku.
 use bevy::prelude::*;
 use rand::Rng;
 use crate::components::{Side, Tower, Selling};
 use crate::constants::{BOT_THINK_SECS, COLS, ROWS};
 use crate::resources::{CreepAssets, MatchOver, RoundPhase, RoundState, SideState, Sides, WavePaused};
 use crate::systems::creep::spawn_sent_unit;
-use crate::systems::tower_build::{tower_build_cost, try_build_kind, try_merge, TowerRef};
+use crate::systems::tower_build::{tower_build_cost, tower_upgrade_cost, try_build_kind, try_upgrade, TowerRef};
 use crate::utils::compute_path;
 use crate::wave_def::{get_unit_def, income_multiplier, UNIT_COUNT};
 
@@ -78,26 +78,22 @@ pub fn bot_system(
             println!("BOT: gold {} income {:.0} vezi {}/{} (staveb {})", st.gold, st.income.amount, mine.len(), want, st.builds);
         }
 
-        // 1) spojeni: dvojice stejneho druhu a ranku (nejnizsi rank prvni). Az kdyz ma bot aspon 6 vezi,
-        //    aby si na zacatku nerozbijel bludiste. Uvolnene policko pozdeji zastavi znovu.
-        if mine.len() >= 6 {
-            let mut pair: Option<(TowerRef, TowerRef)> = None;
-            for (i, a) in mine.iter().enumerate() {
-                for b in mine.iter().skip(i + 1) {
-                    if a.kind == b.kind && a.rank == b.rank && a.rank < crate::constants::tower_rank_cap(a.kind) && pair.map_or(true, |(p, _)| a.rank < p.rank) {
-                        // nova vez zustane na policku vys v bludisti (blize vstupu = dele strili), uvolni se to nizsi
-                        pair = Some(if a.row >= b.row { (*b, *a) } else { (*a, *b) });
-                    }
-                }
-            }
-            if let Some((from, to)) = pair {
-                if try_merge(&mut commands, &asset_server, &mut sides, me, from, to) { continue; }
+        // 1) upgrade za gold (GDD: veze se nespojuji): az kdyz ma bot aspon 6 vezi; vylepsi vez s nejnizsim rankem,
+        //    pri shode tu vys v bludisti (blize vstupu = dele strili). Dokud nema dost vezi, stavi radsi nove.
+        let enough = mine.len() >= want;
+        if mine.len() >= 6 && (enough || rand::thread_rng().gen_bool(0.4)) {
+            let st = sides.get(me);
+            let pick = mine.iter()
+                .filter(|t| tower_upgrade_cost(t.kind, t.rank).map_or(false, |c| c <= st.gold))
+                .min_by_key(|t| (t.rank, std::cmp::Reverse(t.row)))
+                .copied();
+            if let Some(t) = pick {
+                if try_upgrade(&mut commands, &asset_server, &mut sides, me, t) { continue; }
             }
         }
 
         // 2) stavba: dalsi volne policko z planu; kdyz je plan plny, kterekoli volne policko. Nikdy nezazdi cestu.
         //    Kdyz uz ma dost vezi, obcas stavbu vynecha a posle jednotku (investice do income).
-        let enough = mine.len() >= want;
         // investice do income: od 3. kola i kdyz jeste nema dost vezi (jinak mu ekonomika zustane na zakladnim income a pozdni vlny ho rozdrti)
         let invest = round.phase == RoundPhase::Running && (enough || wave.0 >= 3) && rand::thread_rng().gen_bool(if enough { 0.3 } else { 0.2 });
         let st = sides.get(me);

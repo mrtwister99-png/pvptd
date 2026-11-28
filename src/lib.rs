@@ -52,7 +52,6 @@ pub fn main() {
         .insert_resource(HeldBuilding(None))
         .insert_resource(PanelsOpen::default())
         .insert_resource(Deck::default())
-        .insert_resource(TowerDrag::default())
         .insert_resource(KeyControl::default())
         .init_resource::<GameMode>()
         .add_systems(OnEnter(AppState::DeckSelect), deck::spawn_deck_screen)
@@ -128,11 +127,10 @@ pub fn main() {
             switch_view_system.run_if(not_test_mode),
             game_over_system,
             game_over_button_system,
-            tower_drag_system,
             bot_system.run_if(not_test_mode),
             tower_info_system,
             opponent_hp_system,
-            keyboard_cursor_system.after(tower_drag_system),
+            keyboard_cursor_system,
         ).run_if(in_state(AppState::Playing)))
         .add_systems(Update, pause_menu_system.run_if(in_state(AppState::Playing)))
         .add_systems(Update, test_mode_system.run_if(in_state(AppState::Playing)).run_if(in_test_mode))
@@ -159,7 +157,6 @@ fn cleanup_game(
     commands.insert_resource(HoverCell(None));
     commands.insert_resource(HeldBuilding(None));
     commands.insert_resource(PanelsOpen::default());
-    commands.insert_resource(TowerDrag::default());
     commands.insert_resource(KeyControl::default());
     // pooly: jejich entity byly smazany, setup je vytvori znovu
     commands.insert_resource(DamageNumberPool::default());
@@ -325,8 +322,6 @@ fn setup(
             p.spawn((Sprite { color: c, custom_size: Some(Vec2::new(w, h)), ..default() }, Transform::from_xyz(x, y, 0.1)));
         }
     });
-    // duch pretahovane veze pod prstem (ikonu a pozici nastavuje tower_drag_system)
-    commands.spawn((Sprite::default(), Transform::from_xyz(0.0, 0.0, 8.0), BuildPreview, Visibility::Hidden));
 
     // kruh dosahu veze (bily) a kruh dosahu po upgradu (zeleny, ukaze se pri najeti na UPGRADE)
     let ring_mesh = meshes.add(Annulus::new(0.994, 1.0));

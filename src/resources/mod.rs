@@ -97,14 +97,9 @@ impl Default for Deck {
     fn default() -> Self { Self(vec![1, 2, 3, 4, 16, 17]) }
 }
 
-// pretahovani veze prstem / mysi (spojovani): odkud se tahne a jestli se uz pohnul
+// ovladani klavesnici: Enter na prazdnem policku postavi, Enter na vezi ji vylepsi, S na vezi = prodat (okno ANO/NE)
 #[derive(Resource, Default)]
-pub struct TowerDrag { pub from: Option<(usize, usize)>, pub start: Vec2, pub moved: bool }
-
-// ovladani klavesnici: Enter na prazdnem policku postavi, S na vezi = prodat (okno ANO/NE),
-// Enter na vezi ji vezme a nese (Enter na stejne vezi stejneho ranku = spojit, Esc = zrusit)
-#[derive(Resource, Default)]
-pub struct KeyControl { pub carry: Option<(usize, usize)>, pub sell_confirm: Option<(usize, usize)> } // carry = nesena vez, sell_confirm = otevrene okno ANO/NE pro prodej
+pub struct KeyControl { pub sell_confirm: Option<(usize, usize)> } // sell_confirm = otevrene okno ANO/NE pro prodej
 
 // na kterou lajnu se prave diva kamera
 #[derive(Resource)]

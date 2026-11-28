@@ -15,7 +15,7 @@
 - Po HRAT se vybírá režim: VS BOT nebo TEST.
 - TEST: jen vlastní hrací pole, všech 25 věží, neomezený gold i diamanty, životy se nepočítají,
   creepi z panelu S jdou kdykoli na vlastní lajnu, tlačítko VLNA +1 pošle automatickou vlnu,
-  PRODAT = okamžitě ROZBÍT. Rank se zkouší přes UPGRADE (gold je neomezený) nebo spojováním.
+  PRODAT = okamžitě ROZBÍT. Rank se zkouší přes UPGRADE (gold je neomezený).
 - Opraven pád u věže DJ (zkratka názvu se 2 písmeny).
 
 ### 2026-11-28 – Vyvážení ke 30. vlně, 34 jednotek, balíček
@@ -29,6 +29,15 @@
 - Balíček: funkce `deck_is_complete` + testy (vždy 4 Basic + 2 Special, žádná věž dvakrát).
 - Bot od 3. kola investuje do income i bez plného bludiště; opraven pád bota bez goldu na věž.
 - Simulace bot vs bot (`SIM_ENDLESS=1 GAME_SPEED=5`): zápas běžel do 51. kola bez pádu, income ve 20. kole
-  100–220 / 7 s, věže 3–5 tisíc g. Boti ale propouštěli creepy už od 1. kola (rozbíjí si bludiště spojováním,
+  100–220 / 7 s, věže 3–5 tisíc g. Boti ale propouštěli creepy už od 1. kola (tehdy si ještě rozbíjeli bludiště spojováním,
   při 5× rychlosti se asi míjí střely), takže skutečnou obtížnost 15.–30. kola je potřeba ověřit hraním.
 - Dokumentace přepsaná (DESIGN, PLAN, nové README).
+
+### 2026-11-28 – Finální GDD, konec spojování věží
+
+- Platí finální GDD „Meme TD 1v1“ (verze 1.0). Podle něj se věže **nespojují**, rank se kupuje jen upgradem za gold
+  (proto balíček 4 Basic + 2 Special).
+- Odstraněno spojování: tah věže na věž, nesení věže Enterem i duch přetahované věže. Enter na věži teď věž vylepší.
+- Bot místo spojování vylepšuje věže za gold (nejnižší rank první).
+- Dokumentace: GDD je hlavní zdroj pravdy, do DESIGN.md přibyl seznam rozdílů kódu proti GDD a do PLAN.md krok
+  „převod na finální GDD“. Dnešní přeladění vln a 34 jednotek GDD nedodržuje a při převodu se nahradí.

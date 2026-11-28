@@ -45,7 +45,7 @@ pub const LEAK_ELITE: u32 = 2;
 pub const LEAK_BOSS: u32 = 4;
 
 pub const CREEP_BASE_SPEED: f32 = 85.0;
-pub const MAX_TOWER_LEVEL: u32 = 7;   // max rank veze (spojovanim)
+pub const MAX_TOWER_LEVEL: u32 = 7;   // max rank Basic veze (upgrade za gold)
 pub const BASIC_TOWER_COUNT: usize = 15;
 pub const DECK_BASIC_SIZE: usize = 4;
 pub const DECK_SPECIAL_SIZE: usize = 2;

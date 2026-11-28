@@ -1,6 +1,7 @@
 # Plán implementace – 1v1 proti botovi
 
-Cíl první etapy: **hratelný zápas 1v1 proti botovi v telefonu** podle [DESIGN.md](DESIGN.md), hratelný až ke 30. vlně.
+Cíl první etapy: **hratelný zápas 1v1 proti botovi v telefonu** podle finálního GDD (Meme TD 1v1, verze 1.0) a [DESIGN.md](DESIGN.md), hratelný až ke 30. vlně.
+Co z GDD ještě chybí, je v DESIGN.md, sekce **8. Rozdíly kódu proti GDD**.
 Karty, truhly a online přijdou až potom. Každý krok končí tím, že hra jde spustit a vyzkoušet.
 
 ## Hlavní technická změna (hotovo)
@@ -45,12 +46,12 @@ Online soupeř pak bude jen jiná „strana“, kterou neřídí bot, ale síť.
 - [x] Výběr typu věže v herním panelu; prázdné políčko postaví právě zvolený typ z balíčku.
 - [x] Vylepšení Basic věže za gold až na rank 7, Special až na rank 3; ceny a statistiky vycházejí z GDD.
 - [x] Stavba Special věže vyžaduje a spotřebuje jeden diamant.
-- [x] Spojení stejných věží stejného ranku zůstává jako alternativní cesta k upgradu a zachová typ věže.
+- [x] **Spojování věží odstraněno** (podle GDD): rank se kupuje jen upgradem za gold, upgrade nemění bludiště.
 - [x] Prodej zůstává: vrací 50 % investovaného goldu.
 
 ### Krok 5 – bot
 - [x] Bot staví, když má gold, a skládá bludiště „had“ (zdi přes lajnu s mezerou střídavě vlevo/vpravo), nikdy si cestu nezazdí.
-- [x] Spojuje dvojice, když může.
+- [x] Vylepšuje věže za gold (nejnižší rank první), když má aspoň 6 věží.
 - [x] Posílá jednotky z goldu navíc; od 3. kola občas investuje do income, i když ještě nemá dost věží.
 - [x] Opraven pád, když bot nemá na žádnou věž (přetečení rozpočtu).
 - [ ] Úrovně obtížnosti bota (lehký / normální / těžký) – později.
@@ -91,7 +92,17 @@ Příklad simulace vyvážení (bot proti botovi, 5× rychleji, bez konce zápas
 $env:SIM_ENDLESS=1; $env:AUTOPLAY=1; $env:AUTOPLAY_BOTH=1; $env:GAME_SPEED=5; cargo run
 ```
 
-Ovládání: šipky posouvají vybrané políčko (Shift + šipka o dvě), Enter staví / bere a spojuje věž, S na věži prodá (okno ANO/NE), jinak S otevře panel jednotek. Pauzu otevře tlačítko PAUSE nebo mezerník; restart, návrat do menu i ukončení hry vyžadují potvrzení ANO/NE.
+Ovládání: šipky posouvají vybrané políčko (Shift + šipka o dvě), Enter na prázdném políčku staví, Enter na věži ji vylepší za gold, S na věži prodá (okno ANO/NE), jinak S otevře panel jednotek. Pauzu otevře tlačítko PAUSE nebo mezerník; restart, návrat do menu i ukončení hry vyžadují potvrzení ANO/NE.
+
+### Krok 9 – převod na finální GDD
+- [ ] Ekonomika podle GDD 4.1–4.3: +3 / tick, cap 40, kill gold 2–4, bonus za vlnu, prodej 70 / 50 %.
+- [ ] 10 posílaných jednotek z GDD 4.4 (místo 34 z WC3 mapy), limity 12 za vlnu a 2 Mini-Bossové.
+- [ ] 10 typů creepů z GDD 9 a tabulka vln 1–30 z GDD 10, endless sudden death po vlně 30 (+30 % HP za vlnu).
+- [ ] 6 bossů z GDD 11, diamant podle GDD 4.2 (1. a 2. diamant odemyká Special věže).
+- [ ] Životy podle GDD 2 (boss 3, od vlny 26 leak −2 / +1, sudden death a tie-breaky po vlně 30).
+- [ ] 5 damage typů z GDD 5.
+- [ ] Mapa 16 × 12 s hadovkou, Hlídač Pepa (10 s na opravu), max 75 věží.
+- [ ] Rozhodnout přechod na Rust core + server + Godot klient (GDD 14).
 
 ## Další etapa (po botovi)
 Karty a truhly, úrovně karet, uložení progresu v telefonu → online 1v1, účty, žebříček → kosmetika, diamanty, obchod.

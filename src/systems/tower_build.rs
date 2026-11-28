@@ -1,10 +1,10 @@
 
 use bevy::prelude::*;
-use crate::components::{Side, SwitchViewButton, Tower, Selling, UpgradeLabel, SellLabel, RangeRing, RangeRingNext, HoverHighlight, TowerLevelText, PauseButtonUI, BuildPreview, SendToggleButton, SendPanel, TowerActionPanel, UpgradeButton, SellButton, SelectionMarker, SafeRoot, BuildTowerButton, BuildTowerPanel};
-use crate::resources::{HoverCell, SelectedCell, Sides, ViewSide, MatchOver, TowerDrag, KeyControl, WavePaused, HeldBuilding, PanelsOpen, InputPointer, SafeInsets, GameMode};
+use crate::components::{Side, SwitchViewButton, Tower, Selling, UpgradeLabel, SellLabel, RangeRing, RangeRingNext, HoverHighlight, TowerLevelText, PauseButtonUI, SendToggleButton, SendPanel, TowerActionPanel, UpgradeButton, SellButton, SelectionMarker, SafeRoot, BuildTowerButton, BuildTowerPanel};
+use crate::resources::{HoverCell, SelectedCell, Sides, ViewSide, MatchOver, KeyControl, WavePaused, HeldBuilding, PanelsOpen, InputPointer, SafeInsets, GameMode};
 use crate::constants::{CELL, LANE_H, LANE_W, CAM_BASE_Y, tower_icon_path, SELL_SECONDS, SELL_REFUND, ROWS, COLS};
 use crate::tower_def::get_tower_def;
-use crate::utils::{grid_to_world, world_to_grid, compute_path};
+use crate::utils::{grid_to_world, compute_path};
 
 pub fn tower_build_cost(kind: u8) -> i32 {
     get_tower_def(kind, 1).gold
@@ -61,6 +61,39 @@ mod tests {
             &mut sides,
             &asset_server,
         ));
+    }
+
+    #[derive(Resource, Default)]
+    struct UpgradeAttempt(Vec<bool>);
+
+    // postavi Bramboromet R1 na [0,0] a zkusi ho 2x vylepsit
+    fn attempt_upgrades(mut commands: Commands, asset_server: Res<AssetServer>, mut sides: ResMut<Sides>, mut attempt: ResMut<UpgradeAttempt>, mut step: Local<u32>, towers: Query<(Entity, &Tower)>) {
+        *step += 1;
+        if *step == 1 {
+            assert!(try_build_kind(Side::Player, 0, 0, 1, &mut commands, &mut sides, &asset_server));
+            return;
+        }
+        if let Some((e, t)) = towers.iter().next() {
+            attempt.0.push(try_upgrade(&mut commands, &asset_server, &mut sides, Side::Player, TowerRef::of(e, t)));
+        }
+    }
+
+    #[test]
+    fn upgrade_costs_gold_raises_rank_and_stops_without_gold() {
+        let mut sides = Sides::default();
+        sides.get_mut(Side::Player).gold = 50 + 35; // stavba Brambrometu + upgrade na R2, na R3 (45 g) uz nezbyde
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).add_plugins(AssetPlugin::default())
+            .insert_resource(sides).insert_resource(UpgradeAttempt::default())
+            .add_systems(Update, attempt_upgrades);
+        for _ in 0..3 { app.update(); }
+        assert_eq!(app.world().resource::<UpgradeAttempt>().0, vec![true, false]);
+        let st = app.world().resource::<Sides>().get(Side::Player);
+        assert_eq!(st.gold, 0);
+        assert!(st.grid.blocked[0][0]); // upgrade bludiste nemeni
+        let mut q = app.world_mut().query::<&Tower>();
+        let t = q.iter(app.world()).next().unwrap();
+        assert_eq!((t.level, t.invested), (2, 85));
     }
 
     #[test]
@@ -166,25 +199,23 @@ pub fn try_build_kind(side: Side, row: usize, col: usize, kind: u8, commands: &m
     true
 }
 
-// kopie toho, co spojovani potrebuje vedet o vezi
+// kopie toho, co vylepseni (a bot) potrebuje vedet o vezi
 #[derive(Clone, Copy)]
 pub struct TowerRef { pub e: Entity, pub kind: u8, pub rank: u32, pub row: usize, pub col: usize, pub invested: i32 }
 impl TowerRef {
     pub fn of(e: Entity, t: &Tower) -> Self { Self { e, kind: t.kind, rank: t.level, row: t.row, col: t.col, invested: t.invested } }
 }
 
-// spojeni: dve stejne veze stejneho ranku (pod max) -> na miste `to` zustane stejna vez o rank vyssi,
-// policko `from` se uvolni (zmeni se bludiste). Jine veze se nespoji a nic se nestane.
-pub fn try_merge(commands: &mut Commands, asset_server: &AssetServer, sides: &mut Sides, side: Side, from: TowerRef, to: TowerRef) -> bool {
-    if from.e == to.e || from.kind != to.kind || from.rank != to.rank || from.rank >= crate::constants::tower_rank_cap(from.kind) { return false; }
+// vylepseni za gold (GDD: veze se nespojuji, rank 1-7 / Special 1-3 se kupuje): vez se nahradi stejnou vezi o rank vys
+// na stejnem policku, bludiste se nemeni. Kdyz chybi gold nebo je vez na max ranku, nic se nestane.
+pub fn try_upgrade(commands: &mut Commands, asset_server: &AssetServer, sides: &mut Sides, side: Side, t: TowerRef) -> bool {
+    let Some(cost) = tower_upgrade_cost(t.kind, t.rank) else { return false; };
     let st = sides.get_mut(side);
-    let kind = to.kind;
-    commands.entity(from.e).despawn_recursive();
-    commands.entity(to.e).despawn_recursive();
-    spawn_tower(commands, asset_server, side, kind, to.rank + 1, to.row, to.col, from.invested + to.invested);
-    st.grid.blocked[from.row][from.col] = false;
-    st.path.dist = compute_path(&st.grid.blocked);
-    println!("{:?} spojil 2x R{} -> {} R{} na [{},{}]", side, to.rank, kind, to.rank + 1, to.col, to.row);
+    if st.gold < cost { return false; }
+    st.gold -= cost;
+    commands.entity(t.e).despawn_recursive();
+    spawn_tower(commands, asset_server, side, t.kind, t.rank + 1, t.row, t.col, t.invested + cost);
+    println!("{:?} vylepsil {} na R{} za {}G", side, t.kind, t.rank + 1, cost);
     true
 }
 
@@ -633,7 +664,6 @@ pub fn camera_gesture_system(
     insets: Res<SafeInsets>,           // okraje systemovych list
     mut last_extra: Local<f32>,        // posledni posun kamery podle okraju
     view: Res<ViewSide>,               // na kterou lajnu se divame
-    tower_drag: Res<TowerDrag>,        // tahne se vez -> kamera se nehybe
 ) {
     let Ok(mut tf) = cam.get_single_mut() else { return; };
     // lajna se vycentruje do bezpecne oblasti: kdyz se zmeni okraje, kamera se posune o rozdil
@@ -658,7 +688,7 @@ pub fn camera_gesture_system(
         (Some(a), None) => {
             *last_dist = None;
             *drag += a.delta().length();
-            if *drag > CAM_DRAG_MIN && !panels.send && tower_drag.from.is_none() && !q_ui.iter().any(|i| *i != Interaction::None) {
+            if *drag > CAM_DRAG_MIN && !panels.send && !q_ui.iter().any(|i| *i != Interaction::None) {
                 dy += a.delta().y * scale; // obsah jede s prstem: prst dolu = kamera nahoru
                 dx -= a.delta().x * scale; // prst doprava = kamera doleva
             }
@@ -758,7 +788,6 @@ pub fn switch_view_system(
     mut held: ResMut<HeldBuilding>,
     mut panels: ResMut<PanelsOpen>,
     mut selected: ResMut<SelectedCell>,
-    mut drag: ResMut<TowerDrag>,
     mut kc: ResMut<KeyControl>,
 ) {
     let clicked = q_btn.iter().any(|i| *i == Interaction::Pressed);
@@ -768,8 +797,6 @@ pub fn switch_view_system(
     // kamera skoci na stejne misto druhe lajny (zoom i vyska zustavaji)
     if let Ok(mut tf) = cam.get_single_mut() { tf.translation.x += view.0.lane_x() - from.lane_x(); }
     // na lajne soupere se nestavi: zrusit drzenou budovu, vyber a stavebni nabidku
-    drag.from = None;
-    kc.carry = None;
     kc.sell_confirm = None;
     if view.0 != Side::Player {
         held.0 = None;
@@ -782,89 +809,8 @@ pub fn switch_view_system(
     for mut bg in q_btn_bg.iter_mut() { bg.0 = col; }
 }
 
-// PRETAHOVANI VEZE (spojovani): stisk na vlastni vezi a tah na jinou vez stejneho druhu a ranku = spojeni.
-// Behem tahu jede pod prstem pruhledny duch veze. Pusteni jinde / na jinou vez = nic se nestane.
-pub fn tower_drag_system(
-    mut commands: Commands,
-    windows: Query<&Window>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    touches: Res<Touches>,
-    camera_q: Query<(&Camera, &GlobalTransform)>,
-    q_ui: Query<&Interaction, With<Button>>,
-    mut drag: ResMut<TowerDrag>,
-    mut sides: ResMut<Sides>,
-    asset_server: Res<AssetServer>,
-    over: Res<MatchOver>,
-    view: Res<ViewSide>,
-    q_towers: Query<(Entity, &Tower, &Sprite), (Without<Selling>, Without<BuildPreview>)>,
-    mut q_ghost: Query<(&mut Transform, &mut Visibility, &mut Sprite), (With<BuildPreview>, Without<Tower>)>,
-) {
-    let Ok((camera, cam_tf)) = camera_q.get_single() else { return; };
-    let to_world = |p: Vec2| camera.viewport_to_world_2d(cam_tf, p).ok();
-    // ukazatel: dotyk ma prednost pred mysi
-    let (pressed_at, held_at, released_at) = if touches.iter().next().is_some() || touches.iter_just_released().next().is_some() {
-        (touches.iter_just_pressed().next().map(|t| t.position()), touches.iter().next().map(|t| t.position()), touches.iter_just_released().next().map(|t| t.position()))
-    } else {
-        let cur = windows.get_single().ok().and_then(|w| w.cursor_position());
-        (if mouse.just_pressed(MouseButton::Left) { cur } else { None }, if mouse.pressed(MouseButton::Left) { cur } else { None }, if mouse.just_released(MouseButton::Left) { cur } else { None })
-    };
-
-    // zacatek tahu: stisk na vlastni vezi (ne na tlacitku, ne pri dvou prstech, ne po konci zapasu)
-    if let Some(p) = pressed_at {
-        drag.from = None;
-        drag.moved = false;
-        let on_ui = q_ui.iter().any(|i| *i != Interaction::None);
-        if !on_ui && over.0.is_none() && view.0 == Side::Player && touches.iter().count() <= 1 {
-            if let Some(w) = to_world(p) {
-                if let Some(cell) = world_to_grid(Side::Player, w.x, w.y) {
-                    if q_towers.iter().any(|(_, t, _)| t.side == Side::Player && t.row == cell.0 && t.col == cell.1) {
-                        drag.from = Some(cell);
-                        drag.start = p;
-                    }
-                }
-            }
-        }
-    }
-    let Some(from) = drag.from else { return; };
-    if touches.iter().count() >= 2 { drag.from = None; for (_, mut vis, _) in q_ghost.iter_mut() { *vis = Visibility::Hidden; } return; } // zoom = zrusit tah
-
-    // behem tahu: duch veze pod prstem
-    if let Some(p) = held_at {
-        if p.distance(drag.start) > 10.0 { drag.moved = true; }
-        if drag.moved {
-            if let (Some(w), Some((_, _, src))) = (to_world(p), q_towers.iter().find(|(_, t, _)| t.side == Side::Player && t.row == from.0 && t.col == from.1)) {
-                for (mut tf, mut vis, mut sprite) in q_ghost.iter_mut() {
-                    tf.translation.x = w.x;
-                    tf.translation.y = w.y;
-                    sprite.image = src.image.clone();
-                    let c = src.color.to_srgba();
-                    sprite.color = Color::srgba(c.red, c.green, c.blue, 0.6);
-                    sprite.custom_size = src.custom_size;
-                    *vis = Visibility::Visible;
-                }
-            }
-        }
-    }
-
-    // pusteni: na jine vezi = pokus o spojeni
-    if let Some(p) = released_at {
-        for (_, mut vis, _) in q_ghost.iter_mut() { *vis = Visibility::Hidden; }
-        drag.from = None;
-        if !drag.moved { return; }
-        let Some(w) = to_world(p) else { return; };
-        let Some(target) = world_to_grid(Side::Player, w.x, w.y) else { return; };
-        if target == from { return; }
-        let find = |cell: (usize, usize)| q_towers.iter().find(|(_, t, _)| t.side == Side::Player && t.row == cell.0 && t.col == cell.1).map(|(e, t, _)| TowerRef::of(e, t));
-        if let (Some(a), Some(b)) = (find(from), find(target)) {
-            if !try_merge(&mut commands, &asset_server, &mut sides, Side::Player, a, b) {
-                println!("Tyhle veze se spojit nedaji (musi byt stejny druh a rank, max R{})", crate::constants::tower_rank_cap(a.kind));
-            }
-        }
-    }
-}
-
 // KLAVESNICE: sipky posouvaji vybrane policko (vzdy nejake je), Shift+sipky posouvaji o 2 policka,
-// Enter stavi / bere a spojuje veze,
+// Enter na prazdnem policku stavi, Enter na vezi ji vylepsi za gold,
 // S na vezi otevre okno prodeje (Enter = ano, Esc = ne), Esc rusi
 pub fn keyboard_cursor_system(
     mut commands: Commands,
@@ -877,18 +823,15 @@ pub fn keyboard_cursor_system(
     asset_server: Res<AssetServer>,
     view: Res<ViewSide>,
     over: Res<MatchOver>,
-    drag: Res<TowerDrag>,
-    q_towers: Query<(Entity, &Tower, &Sprite), (Without<Selling>, Without<BuildPreview>)>,
-    mut q_ghost: Query<(&mut Transform, &mut Visibility, &mut Sprite), (With<BuildPreview>, Without<Tower>)>,
+    q_towers: Query<(Entity, &Tower), Without<Selling>>,
 ) {
     if view.0 != Side::Player || over.0.is_some() {
-        kc.carry = None;
         kc.sell_confirm = None;
     } else if let Some(cell) = kc.sell_confirm {
         // otevrene okno prodeje: Enter = prodat (spusti odpocet prodeje), Esc = nechat; nic jineho nejde
         let enter = keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter);
         if enter {
-            if let Some((e, _, _)) = q_towers.iter().find(|(_, t, _)| t.side == Side::Player && t.row == cell.0 && t.col == cell.1) {
+            if let Some((e, _)) = q_towers.iter().find(|(_, t)| t.side == Side::Player && t.row == cell.0 && t.col == cell.1) {
                 commands.entity(e).try_insert(Selling { timer: Timer::from_seconds(SELL_SECONDS, TimerMode::Once) });
             }
             kc.sell_confirm = None;
@@ -896,9 +839,7 @@ pub fn keyboard_cursor_system(
             kc.sell_confirm = None;
         }
     } else {
-        let tower_at = |cell: (usize, usize)| q_towers.iter().find(|(_, t, _)| t.side == Side::Player && t.row == cell.0 && t.col == cell.1);
-        // nesena vez mezitim zmizela (prodej, hlidac) -> zrusit
-        if let Some(from) = kc.carry { if tower_at(from).is_none() { kc.carry = None; } }
+        let tower_at = |cell: (usize, usize)| q_towers.iter().find(|(_, t)| t.side == Side::Player && t.row == cell.0 && t.col == cell.1);
 
         // sipky: radek 0 je dole (cil), nahoru = vyssi radek
         let mut d: (i32, i32) = (0, 0);
@@ -914,9 +855,8 @@ pub fn keyboard_cursor_system(
             selected.0 = Some((r, c));
             panels.send = false;
         }
-        if keys.just_pressed(KeyCode::Escape) { kc.carry = None; }
         // S na vlastni vezi = prodat (nejdriv okno ANO / NE); jinde S otevira panel jednotek (panels_input_system)
-        if keys.just_pressed(KeyCode::KeyS) && kc.carry.is_none() {
+        if keys.just_pressed(KeyCode::KeyS) {
             if let Some(cell) = selected.0 { if tower_at(cell).is_some() { kc.sell_confirm = Some(cell); } }
         }
 
@@ -924,40 +864,13 @@ pub fn keyboard_cursor_system(
             match selected.0 {
                 None => selected.0 = Some((ROWS / 2, COLS / 2)),
                 Some(cell) => {
-                    if let Some(from) = kc.carry {
-                        // neseme vez: Enter na stejnem miste = polozit zpet, na stejne vezi stejneho ranku = spojit, jinde nic
-                        if from == cell { kc.carry = None; }
-                        else if let (Some((ea, ta, _)), Some((eb, tb, _))) = (tower_at(from), tower_at(cell)) {
-                            if try_merge(&mut commands, &asset_server, &mut sides, Side::Player, TowerRef::of(ea, ta), TowerRef::of(eb, tb)) { kc.carry = None; }
-                        }
-                    } else if tower_at(cell).is_some() {
-                        kc.carry = Some(cell); // vzit vez (rezim spojovani)
-                    } else {
-                        if let Some(kind) = selected_build_kind(&sides.get(Side::Player).deck, held.0) {
-                            try_build_kind(Side::Player, cell.0, cell.1, kind, &mut commands, &mut sides, &asset_server);
-                        }
+                    if let Some((e, t)) = tower_at(cell) {
+                        try_upgrade(&mut commands, &asset_server, &mut sides, Side::Player, TowerRef::of(e, t));
+                    } else if let Some(kind) = selected_build_kind(&sides.get(Side::Player).deck, held.0) {
+                        try_build_kind(Side::Player, cell.0, cell.1, kind, &mut commands, &mut sides, &asset_server);
                     }
                 }
             }
-        }
-    }
-
-    // duch nesene veze na vybranem policku (pri tahu mysi ducha ridi tower_drag_system)
-    if drag.from.is_some() { return; }
-    let src = kc.carry.and_then(|from| q_towers.iter().find(|(_, t, _)| t.side == Side::Player && t.row == from.0 && t.col == from.1));
-    for (mut tf, mut vis, mut sprite) in q_ghost.iter_mut() {
-        match (src, selected.0) {
-            (Some((_, _, src)), Some((r, c))) => {
-                let p = grid_to_world(Side::Player, r, c);
-                tf.translation.x = p.x;
-                tf.translation.y = p.y;
-                sprite.image = src.image.clone();
-                let col = src.color.to_srgba();
-                sprite.color = Color::srgba(col.red, col.green, col.blue, 0.6);
-                sprite.custom_size = src.custom_size;
-                if *vis != Visibility::Visible { *vis = Visibility::Visible; }
-            }
-            _ => { if *vis != Visibility::Hidden { *vis = Visibility::Hidden; } }
         }
     }
 }

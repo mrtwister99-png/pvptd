@@ -1,7 +1,8 @@
 # PvP TD – design dokument
 
-> Živý dokument. Co je rozhodnuté, je v sekci **Rozhodnuto**. Co se ještě řeší, je v **Otevřené otázky**.
-> Každé téma projdeme zvlášť a výsledek sem zapíšeme. Poslední velká úprava: **2026-11-28** (režimy hry, balíček, přeladění vln a jednotek ke 30. vlně).
+> **Hlavní zdroj pravdy je finální GDD „Meme TD 1v1 – Finální GDD“ (verze 1.0, zamknuto).** Tento dokument popisuje,
+> co z GDD je v kódu, jak to ve hře teď funguje a kde se kód od GDD ještě liší (sekce **8. Rozdíly kódu proti GDD**).
+> Když se tento dokument a GDD rozcházejí, platí GDD. Poslední úprava: **2026-11-28**.
 
 ## 1. Vize (jednou větou)
 
@@ -14,7 +15,7 @@ Rychlá a pestrá mobilní **1v1 PvP tower defense**. Kořeny má v Line Tower W
   - menu: **HRÁT → VS BOT / TEST**, **BALÍČEK** (výběr 4 Basic + 2 Special)
   - dvě pole 7×14, stavění a cesta creepů kolem věží; soupeřem je bot
   - katalog 15 Basic + 10 Special věží; ve VS BOT se staví jen z balíčku
-  - výběr konkrétní věže pro stavbu, placené upgrady/merge a prodej
+  - výběr konkrétní věže pro stavbu, placené upgrady za gold a prodej (věže se nespojují)
   - Basic ranky 1–7, Special ranky 1–3; stavba Special věže stojí diamant
   - kola, bossové, **34 posílaných jednotek**, gold/income a efektové systémy
   - **testovací režim** (hřiště) pro zkoušení věží a jednotek
@@ -53,25 +54,25 @@ Rychlá a pestrá mobilní **1v1 PvP tower defense**. Kořeny má v Line Tower W
 - **Gold za zabití creepa**: normální 15, větší 40, boss 80, mega boss 150 (poslané jednotky nic).
 - Síla věže = úroveň karty × rank v zápase.
 
-### C. Karty, balíček a spojování věží (2026-11-20, upraveno 2026-11-28)
+### C. Karty, balíček a vylepšování věží (2026-11-20, upraveno 2026-11-28 podle GDD)
 
 - **Karty jsou věže i jednotky.** Získávají se po zápase z **truhel** (a dalších odměn).
 - **Balíček**: do zápasu si hráč vybírá **vždy přesně 4 Basic a 2 Special věže** z katalogu 15 + 10. Obrazovka BALÍČEK víc nepustí, tlačítko HOTOVO funguje jen u úplného balíčku a žádná věž nesmí být dvakrát. Bot si losuje balíček podle stejného pravidla.
 - **Úroveň karty zvedá všechny statistiky** dané věže nebo jednotky. U jednotek to znamená silnější posílané creepy.
 - **Stavění v zápase**: hráč zvolí typ ze svého balíčku a postaví právě tuto věž na vybrané prázdné políčko. Special věž při stavbě spotřebuje také jeden diamant.
 - **Vylepšování**: Basic věže se vylepšují za gold až na rank 7, Special až na rank 3. Ceny a statistiky jsou definované podle GDD.
-- **Spojování (merge)**: dvě stejné věže stejného ranku se mohou spojit → vznikne stejný typ věže o rank výš.
-- **Max rank** je 7 pro Basic a 3 pro Special; k dosažení ranku vede přímé placené vylepšování, merge zůstává alternativou.
-- **Prodej věže** zůstává: vrací 50 % všeho, co se do věže spojilo.
-- **Bludiště zůstává**: hráč si cestu staví sám, jak to v rychlosti zvládne. Spojení věže z bludiště odebere, takže se cesta změní (je to i taktika).
-- **Spojení přetažením**: věž přetáhneš na stejnou věž a nová věž vznikne **na místě, kam jsi táhl**.
+- **Věže se nespojují.** Jediná cesta k vyššímu ranku je **UPGRADE za gold** (tlačítko UPGRADE, na klávesnici Enter na věži). Proto má balíček pevně 4 Basic + 2 Special.
+- **Ceny upgradu (GDD 6.1 a 6.2)**: Basic R2–R7 stojí 70 / 90 / 120 / 155 / 200 / 260 % ceny stavby, Special R2–R3 80 / 130 % základní ceny. Násobky dmg, intervalu a dosahu jsou podle tabulek GDD.
+- **Max rank** je 7 pro Basic a 3 pro Special.
+- **Upgrade nemění bludiště** – věž zůstane na svém políčku.
+- **Prodej věže**: teď vrací 50 % všeho, co do věže šlo (stavba + upgrady). GDD chce 70 % před vlnou a 50 % během vlny (viz sekce 8).
 - **Jednotky**: posílat se dá **neomezeně, dokud máš gold**. V zápase jsou **odemčené všechny jednotky**. Sílu jim zvedají **jen karty** (z truhel), během zápasu se jednotky nevylepšují.
 
 ### D. Soupeř a obrazovka (2026-11-20)
 
 - **Začínáme 1v1 proti botovi** v telefonu (bez serveru). Online proti lidem až potom.
 - **Přepínání mezi lajnami**: hráč vidí svoje bludiště a tlačítkem (nebo Tab) se přepne na soupeřovo.
-- **Bot** staví bludiště, spojuje věže a během kola posílá jednotky. Část goldu dává do posílání i na začátku, aby mu rostl income.
+- **Bot** staví bludiště, vylepšuje věže za gold (nejdřív ty s nejnižším rankem) a během kola posílá jednotky. Část goldu dává do posílání i na začátku, aby mu rostl income.
 
 ### E. Režimy hry (2026-11-28)
 
@@ -85,7 +86,7 @@ Po stisku **HRÁT** se vybírá režim:
 **TEST**:
 - je jen **vlastní hrací pole**, bot nehraje a přepínání na soupeře chybí,
 - v nabídce stavění je **všech 25 věží** (Basic i Special), balíček se neuplatní,
-- **gold i diamanty jsou neomezené**, takže jde zkusit **jakýkoli rank** (UPGRADE i spojování),
+- **gold i diamanty jsou neomezené**, takže jde přes **UPGRADE** zkusit **jakýkoli rank**,
 - **životy se nepočítají**, prohrát nejde,
 - jednotky z panelu **S** jdou **kdykoli na vlastní pole**, aby šly zkoušet proti vlastním věžím,
 - tlačítko **VLNA +1** pošle na vlastní pole další automatickou vlnu (kolo +1),
@@ -195,9 +196,9 @@ Parametry věží jsou v `src/tower_def.rs`; popisy schopností jsou v `src/spec
 - Model ekonomiky počítá s tím, že hráč posílá ~25 % goldu. Když lidé posílají víc nebo méně, posune se obtížnost vln.
 - Gold za zabití podle typu creepa, ceny jednotek 31–34.
 
-### C. Karty a spojování – doladit
+### C. Karty a vylepšování – doladit
 - Úrovně karet dávají sílu a férovost řeší matchmaking podle síly balíčku. Proto musí být vylepšování **jen za věci získané hraním, nikdy za peníze**.
-- Jsou v zápase **vylepšení celého typu věže** (zaplatíš a všechny věže daného typu jsou silnější), nebo jen stavění a spojování?
+- Jsou v zápase **vylepšení celého typu věže** (zaplatíš a všechny věže daného typu jsou silnější), nebo jen stavění a upgrady jednotlivých věží?
 - Jak velký rozdíl mezi úrovní karty 1 a max? (Malý = víc skillu, velký = víc progresu.)
 
 ### D. Multiplayer / technika
@@ -222,3 +223,29 @@ Parametry věží jsou v `src/tower_def.rs`; popisy schopností jsou v `src/spec
 - Jednotky: `get_unit_def` v `src/wave_def.rs`; schopnosti v tabulkách `is_air`, `resist_for`, `enrage_for`, `heal_for`, `aura_for`, `tower_aura_for`, `shimmer_for`, `shoot_back_for`.
 - Režim zápasu: zdroj `GameMode` v `src/resources/mod.rs`, výběr v `src/menu.rs`, chování testu v `test_mode_system` (`src/systems/creep.rs`).
 - Balíček: `deck_is_complete` v `src/deck.rs`.
+
+## 8. Rozdíly kódu proti GDD
+
+Co GDD chce a v kódu zatím není nebo je jinak. Tohle je seznam práce, ne rozhodnutí – platí GDD.
+
+| Oblast | GDD | Teď v kódu |
+|---|---|---|
+| Spojování věží | není | **odstraněno** (2026-11-28) ✅ |
+| Balíček | 4 Basic + 2 Special | stejně ✅ |
+| Ranky a ceny upgradů | R1–7 / R1–3, tabulky 6.1 a 6.2 | stejně ✅ |
+| Mapa | hadovka 16 × 12, stavba jen vedle cesty, max 75 věží | volné bludiště 7 × 14 |
+| Hlídač Pepa | BFS kontrola, 10 s na opravu, pak prodá nejdražší blokující věž | Hlídač boří věž při úplném zablokování |
+| Životy | boss leak 3, od vlny 26 leak bere 2 a soupeři dá 1, sudden death po vlně 30 | boss 4, bez sudden death |
+| Income | +3 / tick 7 s, cap 40 / tick, send income až od dalšího ticku | +20 / tick, bez capu |
+| Gold za zabití | 2–4 za creepa, boss 150, bonus za přežitou vlnu 25 + 3 × vlna | 15 / 40 / 80 / 150, bez bonusu |
+| Diamant | jen za zabitého bosse (leak = soupeři), 1. a 2. diamant odemyká Special věže, další = 400 g | za zabitého bosse, každá Special stavba stojí diamant |
+| Prodej | 70 % před vlnou, 50 % během vlny, Special diamant nevrací | 50 % vždy |
+| Posílané jednotky | **10 jednotek** (Minion z Chatu 25 g … Mini-Boss Ratio 800 g), HP v % vlny, max 12 za vlnu, max 2 Mini-Bossové | 34 jednotek z WC3 mapy |
+| Creepové | 10 meme typů (Wojak, Zoomer Doomer, Tlustý Zombi…) se schopnostmi | jednotky z WC3 mapy |
+| Vlny 1–30 | pevná tabulka (např. vlna 1: 18× Wojak 75 HP, vlna 30: 40× elite 3 200 HP + boss Tvoje Máma Volá 100 000 HP) | vlastní křivka z 2026-11-28 (viz F) |
+| Bossové | 6 bossů s fázemi a debuffy věží (Pan Učitel, Šéf z Práce, Tchyně, Daňový Úřad, Babička, Máma) | obecný boss |
+| Damage typy | 5 typů (fyzické, průrazné, magické, výbušné, čisté), 125 / 75 % | jen dílčí odolnosti |
+| Délka zápasu | 20–30 min | podle vyvážení |
+| Technika | Rust core + autoritativní server + Godot klient | celé v Bevy |
+
+**Pozor:** přeladění vln a jednotek ze sekce F a nové jednotky 31–34 vznikly před přečtením GDD. GDD má vlastní tabulku vln 1–30 a 10 posílaných jednotek, takže se při převodu na GDD nahradí.

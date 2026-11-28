@@ -39,7 +39,7 @@ pub struct Tower {
     pub last_ability_wave: u32,
     pub ability_used_match: bool,
     pub dj_drop_timer: f32,
-    pub invested: i32, // kolik goldu stalo vsechno, co se do veze spojilo (pro prodej)
+    pub invested: i32, // kolik goldu stala stavba + vsechny upgrady (pro prodej)
 }
 
 // === CREEP - vzdy kolecko, jina barva, rust per wave + HP bar ===
@@ -106,7 +106,6 @@ pub struct Bullet {
 #[derive(Component)] pub struct PauseResumeButton;
 #[derive(Component)] pub struct PauseConfirmYesButton;
 #[derive(Component)] pub struct PauseConfirmNoButton;
-#[derive(Component)] pub struct BuildPreview;
 #[derive(Component)] pub struct HoverHighlight;
 #[derive(Component)] pub struct GridLine;
 #[derive(Component)] pub struct CreepHpText;

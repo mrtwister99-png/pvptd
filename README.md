@@ -1,6 +1,8 @@
 # Line TD (PvP tower defense)
 
-Mobilní 1v1 tower defense v Rustu a Bevy 0.15 (Android + PC). Každý hráč staví bludiště z věží na své lajně, přežívá automatické vlny a posílá soupeři jednotky, které mu zvednou income.
+Mobilní 1v1 tower defense v Rustu a Bevy 0.15 (Android + PC). Každý hráč staví bludiště z věží na své lajně, vylepšuje je za gold, přežívá automatické vlny a posílá soupeři jednotky, které mu zvednou income.
+
+Hlavní zdroj pravdy je finální GDD **Meme TD 1v1** (verze 1.0). Co z něj v kódu ještě chybí, je v [docs/DESIGN.md](docs/DESIGN.md), sekce 8.
 
 ## Spuštění
 

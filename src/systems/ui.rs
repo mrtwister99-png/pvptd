@@ -190,7 +190,6 @@ pub fn pause_menu_system(
 pub fn tower_info_system(
     selected: Res<crate::resources::SelectedCell>,
     panels: Res<crate::resources::PanelsOpen>,
-    kc: Res<crate::resources::KeyControl>,
     towers: Query<(&crate::components::Tower, Option<&crate::components::TowerMods>)>,
     mut q_panel: Query<&mut Node, With<crate::components::TowerInfoPanel>>,
     mut q_text: Query<&mut Text, With<crate::components::TowerInfoText>>,
@@ -233,11 +232,8 @@ pub fn tower_info_system(
         }
     };
     // napoveda pro klavesnici
-    let s = if let Some(from) = kc.carry {
-        let what = towers.iter().find(|(t, _)| t.side == Side::Player && t.row == from.0 && t.col == from.1).map(|(t, _)| format!("{} R{}", name_of(t.kind), t.level)).unwrap_or_default();
-        format!("NESES {}: sipkami na stejnou vez,\nEnter = spojit, Esc = zrusit\n\n{}", what, s)
-    } else if towers.iter().any(|(t, _)| t.side == Side::Player && t.row == r && t.col == c) {
-        format!("{}\n\nEnter = vzit a spojit, S = prodat", s)
+    let s = if towers.iter().any(|(t, _)| t.side == Side::Player && t.row == r && t.col == c) {
+        format!("{}\n\nEnter = vylepsit, S = prodat", s)
     } else {
         format!("{}\n\nEnter = postavit", s)
     };
