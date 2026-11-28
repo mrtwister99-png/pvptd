@@ -147,6 +147,17 @@ pub fn wave_def(wave: u32) -> WaveDef {
     }
 }
 
+// MAPA 7 x 14 (domluvena odchylka): GDD pocita s dlouhou hadovkou 16 x 12, kde jsou creepove pod palbou mnohem dele.
+// HP vsech creepu (vlny, bossove, poslane jednotky) se proto nasobi timto cislem; tabulky vyse zustavaji presne podle GDD.
+// Pro ladeni jde prepsat promennou prostredi MAP_HP_SCALE (napr. MAP_HP_SCALE=0.5).
+// Ladeno 2026-11-28 simulacemi bot vs bot: s plnym HP (1,0) i s 0,5 propousti boti skoro cele vlny uz od 1. vlny;
+// 0,15-0,25 dava rozumny zacatek, stabilni stred a tezky konec (vlny 26-29). Zvoleno 0,2.
+pub const MAP_HP_SCALE: f32 = 0.2;
+
+pub fn map_hp_scale() -> f32 {
+    std::env::var("MAP_HP_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(MAP_HP_SCALE)
+}
+
 pub fn is_boss_wave(wave: u32) -> bool { wave_def(wave).boss.is_some() }
 
 // smisene vlny (29+): typ creepa podle poradi, strida se vsech 10 typu
@@ -349,5 +360,11 @@ mod tests {
         assert_eq!(diamonds_needed(&[0, 0]), 6);
         assert_eq!(diamonds_needed(&[3, 1]), 2);
         assert_eq!(diamonds_needed(&[3, 3]), 0);
+    }
+
+    #[test]
+    fn map_scale_only_lowers_hp_and_keeps_the_gdd_tables() {
+        assert!(MAP_HP_SCALE > 0.0 && MAP_HP_SCALE <= 1.0);
+        assert_eq!(wave_def(1).small.2, 75.0); // tabulka zustava presne podle GDD
     }
 }

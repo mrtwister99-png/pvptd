@@ -89,7 +89,7 @@ HP mají creepové přímo z tabulky vln (sloupec „HP mod“ z GDD 9 se u vln 
 
 ### G. Vlny a bossové (GDD 10 a 11)
 
-- Vlny 1–30 přesně podle tabulky GDD 10 (počty, typy, HP, odměny). Vlny 29–30 jsou „smíšené“: střídá se všech 10 typů. Malí creepové ve vlně 30 jsou elite (leak 2).
+- Vlny 1–30 podle tabulky GDD 10 (počty, typy, odměny). **HP všech creepů se na mapě 7 × 14 násobí 0,2** (`MAP_HP_SCALE`, viz sekce 7). Vlny 29–30 jsou „smíšené“: střídá se všech 10 typů. Malí creepové ve vlně 30 jsou elite (leak 2).
 - Bossové každou 5. vlnu:
 
 | Vlna | Boss | HP | Co umí |
@@ -168,7 +168,7 @@ Parametry věží jsou v `src/tower_def.rs`, popisy schopností v `src/special.r
 
 ## 4. Otevřené otázky
 
-- **Obtížnost na malé mapě**: GDD počítá s hadovkou 16 × 12, my máme 7 × 14 a poloviční dosah. Ověřit hraním, jestli jsou vlny z GDD zvládnutelné (viz PLAN, simulace).
+- **Obtížnost na malé mapě**: HP je kvůli mapě 7 × 14 sníženo na 0,2 podle simulací bot vs bot. Ověřit hraním a doladit `MAP_HP_SCALE` (při zkoušení jde přepsat proměnnou prostředí `MAP_HP_SCALE`, dosah `MAP_RANGE_SCALE`).
 - Délka zápasu (cíl 20–30 min), kdy hráči získají první diamant, které věže se nepoužívají (GDD 15).
 - Tick 7 s není moc hektický? (Přepnutí na 10 s = konstanta `INCOME_TICK_SECS`.)
 - Karty: +1,5 % dmg za level sbírky (max +13,5 %), matchmaking podle průměru 6 karet – zatím neimplementováno.
@@ -195,6 +195,7 @@ Domluvené odchylky (2026-11-28):
 | Oblast | GDD | V kódu | Proč |
 |---|---|---|---|
 | Mapa | hadovka 16 × 12 | bludiště 7 × 14, dosah věží × 0,5 | domluveno: mapa zatím zůstává |
+| HP creepů | tabulka GDD 10 | tabulka × 0,2 (vlny, bossové i poslané jednotky) | na krátké lajně jsou creepové pod palbou mnohem kratší dobu; simulace: s plným HP i s 0,5 boti propouštěli skoro celé vlny od 1. vlny, 0,15–0,25 dává rozumný začátek a těžký konec |
 | Poslané jednotky | vyběhnou v příští vlně | vyběhnou hned do běžící vlny | domluveno |
 | Diamanty | 1. a 2. diamant odemyká Special, upgrade diamant nestojí | stavba i každý upgrade Special = 1 diamant, nepotřebný diamant = 400 g | domluveno |
 | Technika | Rust core + server + Godot | celé v Bevy, data GDD odděleně ve `wave_def.rs` | domluveno |

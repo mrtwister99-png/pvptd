@@ -64,7 +64,8 @@ Online soupeř pak bude jen jiná „strana“, kterou neřídí bot, ale síť.
 
 ### Krok 8 – testování a ladění na telefonu
 - [x] Automatické testy: katalog 25 věží, ceny upgradů a diamanty Special, balíček, tabulky GDD (vlny, jednotky), cap income, životy od vlny 26, damage typy, rozhodnutí po vlně 30, Pepa.
-- [ ] Hraním ověřit obtížnost vln z GDD na mapě 7 × 14 (GDD počítá s 16 × 12) a délku zápasu 20–30 min.
+- [x] Simulacemi (bot vs bot) najít násobek HP pro mapu 7 × 14: `MAP_HP_SCALE` = 0,2.
+- [ ] Hraním ověřit obtížnost a délku zápasu 20–30 min, případně doladit `MAP_HP_SCALE`.
 - [ ] GDD 15: kdy hráči dostanou první diamant, které věže se nepoužívají, jestli není tick 7 s moc hektický.
 
 ## Test na PC
@@ -76,6 +77,8 @@ Online soupeř pak bude jen jiná „strana“, kterou neřídí bot, ale síť.
 | `AUTOPLAY_BOTH=1` | bot hraje i za tebe (bot proti botovi) |
 | `SIM_ENDLESS=1` | zápas neskončí při 0 životech (jde vidět, do kterého kola obrana stíhá) |
 | `GAME_SPEED=5` | hra běží 5× rychleji (simulace) |
+| `MAP_HP_SCALE=0.3` | jiný násobek HP creepů (výchozí 0,2) – na ladění |
+| `MAP_RANGE_SCALE=1.0` | jiný násobek dosahu věží (výchozí 0,5) – na ladění |
 | `CARGO_MANIFEST_DIR=<projekt>` | když se spouští přímo `target/debug/future_line_td.exe`, aby hra našla obrázky |
 | `HIDDEN_WINDOW=1` | okno se otevře mimo obrazovku (automatické testy) |
 | `SCREENSHOT_AT="15,20" SCREENSHOT_DIR=slozka` | screenshoty v daných sekundách zápasu (`SCREENSHOT_VIEW=bot` = kamera na lajně bota) |

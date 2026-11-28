@@ -80,6 +80,10 @@ pub fn tower_tag(kind: u8) -> &'static str {
 pub const BOT_THINK_SECS: f32 = 0.8;  // jak casto bot premysli (mensi = rychlejsi = tezsi)
 pub const SELL_SECONDS: f32 = 3.0;   // jak dlouho trva prodej veze (behem toho jeste strili)
 pub const TOWER_RANGE_SCALE: f32 = 0.5; // dosah vsech veze se nasobi timto cislem (1.0 = puvodni dosahy z tabulky)
+// pro ladeni jde dosah prepsat promennou prostredi MAP_RANGE_SCALE
+pub fn tower_range_scale() -> f32 {
+    std::env::var("MAP_RANGE_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(TOWER_RANGE_SCALE)
+}
 
 pub const TOWER_POISON: u8 = 7;
 

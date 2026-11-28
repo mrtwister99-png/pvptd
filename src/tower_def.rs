@@ -43,8 +43,8 @@ pub fn get_tower_def(kind: u8, level: u32) -> TowerDef {
     def.dot_dps *= damage_mul;
     def.interval *= interval_mul;
     def.range = (def.range + crate::constants::CELL * range_bonus)
-        * crate::constants::TOWER_RANGE_SCALE;
-    def.splash *= crate::constants::TOWER_RANGE_SCALE;
+        * crate::constants::tower_range_scale();
+    def.splash *= crate::constants::tower_range_scale();
     if kind == crate::special::TESLA {
         def.chain = if level >= 7 { 4 } else { 2 }; // + prvni zasah = 3 cile, na R7 5 cilu (GDD 7)
     } else if kind == crate::special::KAKTUS && level >= 7 {
@@ -155,7 +155,7 @@ mod tests {
             assert_eq!(def.gold, cost);
             assert!((def.dmg_min - damage).abs() < 0.001);
             assert!((def.interval - interval).abs() < 0.001);
-            assert!((def.range - range_cells * crate::constants::CELL * crate::constants::TOWER_RANGE_SCALE).abs() < 0.001);
+            assert!((def.range - range_cells * crate::constants::CELL * crate::constants::tower_range_scale()).abs() < 0.001);
         }
     }
 

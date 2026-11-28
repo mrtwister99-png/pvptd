@@ -211,14 +211,15 @@ pub fn spawn_creep(commands: &mut Commands, assets: &CreepAssets, meshes: &mut A
 // automaticka vlna z GDD 10 na zadane lajny: mali creepove, za nimi velci, uplne vzadu boss
 pub fn spawn_round_wave(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut Assets<ColorMaterial>, assets: &CreepAssets, asset_server: &AssetServer, wave: u32, lanes: &[Side]) {
     let w = wave_def(wave);
+    let scale = gdd::map_hp_scale(); // mapa 7 x 14: HP z tabulky GDD x tolik
     let mut lineup: Vec<(CreepType, CreepRole, Option<BossKind>, f32, u32)> = Vec::new();
     let small_leak = if wave >= gdd::LAST_WAVE { gdd::LEAK_BIG } else { gdd::LEAK_SMALL }; // vlna 30+: "smisena elite"
     for i in 0..w.small.1 {
         let t = if w.mixed { gdd::mixed_type(i) } else { w.small.0 };
-        lineup.push((t, CreepRole::Small, None, w.small.2, small_leak));
+        lineup.push((t, CreepRole::Small, None, w.small.2 * scale, small_leak));
     }
-    if let Some((t, n, hp)) = w.big { for _ in 0..n { lineup.push((t, CreepRole::Big, None, hp, gdd::LEAK_BIG)); } }
-    if let Some((b, hp)) = w.boss { lineup.push((CreepType::Wojak, CreepRole::Boss, Some(b), hp, gdd::LEAK_BOSS)); }
+    if let Some((t, n, hp)) = w.big { for _ in 0..n { lineup.push((t, CreepRole::Big, None, hp * scale, gdd::LEAK_BIG)); } }
+    if let Some((b, hp)) = w.boss { lineup.push((CreepType::Wojak, CreepRole::Boss, Some(b), hp * scale, gdd::LEAK_BOSS)); }
     println!("Kolo {}: {}x {} {} HP{}{}", wave, w.small.1, creep_def(w.small.0).name, w.small.2,
         w.big.map_or(String::new(), |(t, n, hp)| format!(" + {}x {} {} HP", n, creep_def(t).name, hp)),
         w.boss.map_or(String::new(), |(b, hp)| format!(" + BOSS {} {} HP", boss_def(b).name, hp)));
@@ -424,7 +425,7 @@ pub fn boss_system(
                 if !boss.b.tick(time.delta()).just_finished() { continue; }
                 if phase == 1 {
                     // privola maleho Kopirovaciho Bota (20 % HP maleho creepa vlny)
-                    let small = wave_def(wave.0.max(1)).small.2;
+                    let small = wave_def(wave.0.max(1)).small.2 * gdd::map_hp_scale();
                     let pos = tf.translation.truncate() + Vec2::new(0.0, 20.0);
                     spawn_creep(&mut commands, &assets, &mut meshes, &mut materials, &asset_server, side, CreepSpec { ctype: CreepType::KopirBot, role: CreepRole::Small, boss: None, hp: small * gdd::KOPIR_COPY_HP, leak: gdd::LEAK_SMALL, kill_gold: 1, sent: false, copy: true, pos });
                 } else if phase == 2 {
@@ -673,7 +674,7 @@ pub fn send_unit(commands: &mut Commands, assets: &CreepAssets, meshes: &mut Ass
     let x = target.lane_x() + rand::thread_rng().gen_range(-LANE_W * 0.35..LANE_W * 0.35);
     let pos = Vec2::new(x, LANE_Y + LANE_H / 2.0 + SPAWN_ABOVE);
     let role = if def.mini_boss { CreepRole::MiniBoss } else if def.leak >= 2 { CreepRole::Big } else { CreepRole::Small };
-    spawn_creep(commands, assets, meshes, materials, asset_server, target, CreepSpec { ctype: def.creep, role, boss: None, hp: send_hp(kind, wave), leak: def.leak, kill_gold: 0, sent: true, copy: false, pos });
+    spawn_creep(commands, assets, meshes, materials, asset_server, target, CreepSpec { ctype: def.creep, role, boss: None, hp: send_hp(kind, wave) * gdd::map_hp_scale(), leak: def.leak, kill_gold: 0, sent: true, copy: false, pos });
 }
 
 // klepnuti na jednotku v panelu S: odesle se az PO PUSTENI prstu (a jen kdyz se prst netahl = neposouval panel)

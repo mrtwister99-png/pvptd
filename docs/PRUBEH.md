@@ -55,3 +55,12 @@
 - 5 damage typů (125 / 75 %), slow cap 50 %, bossové mají poloviční CC.
 - Hlídač Pepa: 10 s na opravu zazděné cesty, pak prodá nejdražší blokující věž. Max 75 věží, nestaví se pod creepy.
 - Domluvené odchylky od GDD: mapa zůstává 7 × 14, poslané jednotky vyběhnou hned, technika zůstává Bevy.
+
+### 2026-11-28 – Obtížnost pro mapu 7 × 14
+
+- Simulace bot vs bot s čísly z GDD: s plným HP i s polovičním propouštěli boti skoro celé vlny už od 1. vlny
+  (1. vlna z GDD má 19× víc HP než ta stará). GDD počítá s dlouhou hadovkou 16 × 12.
+- Vyzkoušené kombinace dosahu věží (0,5 / 1,0) a HP (0,15–0,5). Zvoleno: dosah zůstává 0,5, HP všech creepů × 0,2
+  (`MAP_HP_SCALE` ve `wave_def.rs`). Tabulky GDD zůstávají beze změny, násobí se až při spawnu.
+- Na ladění jdou obě čísla přepsat proměnnými prostředí `MAP_HP_SCALE` a `MAP_RANGE_SCALE`.
+
