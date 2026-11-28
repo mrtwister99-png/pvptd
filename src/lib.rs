@@ -54,6 +54,7 @@ pub fn main() {
         .insert_resource(Deck::default())
         .insert_resource(TowerDrag::default())
         .insert_resource(KeyControl::default())
+        .init_resource::<GameMode>()
         .add_systems(OnEnter(AppState::DeckSelect), deck::spawn_deck_screen)
         .add_systems(OnExit(AppState::DeckSelect), deck::despawn_deck_screen)
         .add_systems(Update, (deck::deck_input_system, deck::deck_display_system).run_if(in_state(AppState::DeckSelect)))
@@ -99,7 +100,7 @@ pub fn main() {
             bullet_hit,
             update_debuffs,
             despawn_dead_and_count,
-            round_system,
+            round_system.run_if(not_test_mode),
             update_ui,
             update_wave_timer.after(round_system), // UI odpocet az po ticku kola
             update_hp_display,
@@ -108,7 +109,7 @@ pub fn main() {
             enrage_system,
             enrage_flash_system,
             heal_system,
-            guardian_spawn_system,
+            guardian_spawn_system.run_if(not_test_mode),
             guardian_system,
             update_damage_numbers,
         ).run_if(in_state(AppState::Playing)))
@@ -124,16 +125,17 @@ pub fn main() {
             safe_area_system,
             cheat_button_system,
             tower_aura_system,
-            switch_view_system,
+            switch_view_system.run_if(not_test_mode),
             game_over_system,
             game_over_button_system,
             tower_drag_system,
-            bot_system,
+            bot_system.run_if(not_test_mode),
             tower_info_system,
             opponent_hp_system,
             keyboard_cursor_system.after(tower_drag_system),
         ).run_if(in_state(AppState::Playing)))
         .add_systems(Update, pause_menu_system.run_if(in_state(AppState::Playing)))
+        .add_systems(Update, test_mode_system.run_if(in_state(AppState::Playing)).run_if(in_test_mode))
         .run();
 }
 
@@ -202,8 +204,11 @@ fn dev_screenshot_system(
 }
 
 // test na PC: s promennou prostredi AUTOPLAY=1 se preskoci menu a rovnou zacne zapas
-fn autoplay_system(mut next: ResMut<NextState<AppState>>) {
-    if std::env::var("AUTOPLAY").is_ok() { next.set(AppState::Playing); }
+// (AUTOPLAY=test = rovnou TEST rezim)
+fn autoplay_system(mut next: ResMut<NextState<AppState>>, mut mode: ResMut<GameMode>) {
+    let Ok(v) = std::env::var("AUTOPLAY") else { return; };
+    if v == "test" { *mode = GameMode::Test; }
+    next.set(AppState::Playing);
 }
 
 fn start_restarted_game(mut next: ResMut<NextState<AppState>>) {
@@ -215,6 +220,7 @@ fn setup(
     mut sides: ResMut<Sides>,
     mut held: ResMut<HeldBuilding>,
     deck: Res<Deck>,
+    mode: Res<GameMode>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -223,8 +229,16 @@ fn setup(
     // kamera se spousti uz v menu (menu::spawn_camera)
     for st in sides.0.iter_mut() { st.path.dist = compute_path(&st.grid.blocked); }
     // balicky: hrac ma svuj z menu, bot si nahodne vybere 5 ze vsech vezi
-    sides.get_mut(Side::Player).deck = deck.0.clone();
-    held.0 = deck.0.first().copied();
+    // TEST: k dispozici vsechny veze a neomezene penize
+    let test = mode.is_test();
+    let player_deck: Vec<u8> = if test { constants::ALL_TOWERS.iter().map(|t| t.0).collect() } else { deck.0.clone() };
+    {
+        let st = sides.get_mut(Side::Player);
+        st.deck = player_deck.clone();
+        if test { st.gold = TEST_GOLD; st.diamonds = TEST_DIAMONDS; }
+    }
+    held.0 = player_deck.first().copied();
+    println!("Rezim zapasu: {:?}", *mode);
     {
         use rand::seq::SliceRandom;
         let mut rng = rand::thread_rng();
@@ -242,7 +256,9 @@ fn setup(
     }
 
     // dve lajny: hracova a bota (posunuta o SIDE_OFFSET_X); bot ma lehce cervenejsi pozadi
-    for side in Side::ALL {
+    // TEST: jen vlastni hraci pole (bot neni)
+    let lanes: &[Side] = if test { &[Side::Player] } else { &Side::ALL };
+    for &side in lanes {
         let lane_x = side.lane_x();
         let bg = if side == Side::Player { Color::srgb(0.16, 0.16, 0.18) } else { Color::srgb(0.2, 0.15, 0.16) };
         commands.spawn((
@@ -282,7 +298,7 @@ fn setup(
         commands.spawn((Sprite { color: Color::srgb(0.3, 0.3, 0.35), custom_size: Some(Vec2::new(LANE_W, 4.0)), ..default() }, Transform::from_xyz(lane_x, LANE_Y - LANE_H / 2.0, -8.0)));
 
         // nadpis nad lajnou, at je jasne, ci je
-        let title = if side == Side::Player { "TY" } else { "BOT" };
+        let title = if test { "TEST" } else if side == Side::Player { "TY" } else { "BOT" };
         commands.spawn((Text2d::new(title), TextFont { font_size: 22.0, ..default() }, TextColor(Color::srgba(1.0, 1.0, 1.0, 0.5)), Transform::from_xyz(lane_x, LANE_Y + LANE_H / 2.0 + 24.0, -7.0)));
     }
 
@@ -345,18 +361,18 @@ fn setup(
         });
     });
 
-    // === vpravo nahore - prepnout pohled na lajnu soupere a zpet (nebo klavesa Tab) ===
-    commands.spawn((
+    // === vpravo nahore - prepnout pohled na lajnu soupere a zpet (nebo klavesa Tab); v testu souper neni ===
+    if !test { commands.spawn((
         Button,
         Node { position_type: PositionType::Absolute, top: Val::Px(44.0 + SAFE_TOP), right: Val::Px(8.0), width: Val::Px(64.0), height: Val::Px(64.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
         BackgroundColor(Color::srgb(0.55, 0.2, 0.2)),
         SwitchViewButton,
     )).with_children(|p| {
         p.spawn((Text::new("SOUPER"), TextFont { font_size: 12.0, ..default() }, TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center), SwitchViewLabel));
-    });
+    }); }
 
-    // === LEFT TOP pod odpoctem vlny - za kolik s prijde income (v zavorce celkovy income) ===
-    commands.spawn((Node {
+    // === LEFT TOP pod odpoctem vlny - za kolik s prijde income (v zavorce celkovy income); v testu nema smysl ===
+    if !test { commands.spawn((Node {
         position_type: PositionType::Absolute,
         	top: Val::Px(90.0 + SAFE_TOP),
         left: Val::Px(8.0),
@@ -364,17 +380,20 @@ fn setup(
         ..default()
     }, BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)))).with_children(|p| {
         p.spawn((Text::new("Income in: 7s (+0)"), TextFont { font_size: 14.0, ..default() }, TextColor(Color::srgb(0.5, 0.9, 0.5)), IncomeText));
-    });
+    }); }
 
     // === CHEAT (vlevo nahore pod income): kazde stisknuti prida +50 do income (gold za tik); jen pro testovani ===
-    commands.spawn((
-        Button,
-        Node { position_type: PositionType::Absolute, left: Val::Px(8.0), top: Val::Px(130.0), width: Val::Px(64.0), height: Val::Px(64.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
-        BackgroundColor(Color::srgb(0.6, 0.15, 0.6)),
-        CheatButton,
-    )).with_children(|p| {
-        p.spawn((Text::new("CHEAT\n+50"), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE)));
-    });
+    // v TEST rezimu je na jeho miste VLNA: posle dalsi automatickou vlnu na vlastni lajnu
+    let cheat_node = Node { position_type: PositionType::Absolute, left: Val::Px(8.0), top: Val::Px(if test { 90.0 + SAFE_TOP } else { 130.0 }), width: Val::Px(64.0), height: Val::Px(64.0), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() };
+    if test {
+        commands.spawn((Button, cheat_node, BackgroundColor(Color::srgb(0.55, 0.25, 0.6)), TestWaveButton)).with_children(|p| {
+            p.spawn((Text::new("VLNA\n+1"), TextFont { font_size: 12.0, ..default() }, TextColor(Color::WHITE), TextLayout::new_with_justify(JustifyText::Center)));
+        });
+    } else {
+        commands.spawn((Button, cheat_node, BackgroundColor(Color::srgb(0.6, 0.15, 0.6)), CheatButton)).with_children(|p| {
+            p.spawn((Text::new("CHEAT\n+50"), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE)));
+        });
+    }
 
     // === S (vpravo dole) - otevre panel jednotek ===
     commands.spawn((
@@ -544,13 +563,19 @@ fn setup(
         p.spawn((Text::new(""), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE), TowerInfoText));
     });
 
+    // nabidka vezi k postaveni; v TEST rezimu vsech 25 vezi ve vic radcich
+    let per_row = if test { 9 } else { player_deck.len().max(1) };
+    let panel_w = per_row as f32 * 48.0 + (per_row as f32 - 1.0) * 6.0 + 12.0;
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
             left: Val::Percent(50.0),
             bottom: Val::Px(98.0 + SAFE_BOTTOM),
-            margin: UiRect { left: Val::Px(-145.0), ..default() },
+            width: Val::Px(panel_w),
+            margin: UiRect { left: Val::Px(-panel_w / 2.0), ..default() },
             flex_direction: FlexDirection::Row,
+            flex_wrap: FlexWrap::Wrap,
+            row_gap: Val::Px(6.0),
             column_gap: Val::Px(6.0),
             padding: UiRect::all(Val::Px(6.0)),
             display: Display::None,
@@ -560,7 +585,7 @@ fn setup(
         GlobalZIndex(20),
         BuildTowerPanel,
     )).with_children(|panel| {
-        for &kind in &deck.0 {
+        for &kind in &player_deck {
             let def = tower_def::get_tower_def(kind, 1);
             panel.spawn((
                 Button,
@@ -568,7 +593,7 @@ fn setup(
                 BackgroundColor(def.color),
                 BuildTowerButton(kind),
             )).with_children(|button| {
-                button.spawn((Text::new(constants::tower_tag(kind)), TextFont { font_size: 11.0, ..default() }, TextColor(Color::BLACK)));
+                button.spawn((Text::new(constants::tower_tag(kind)), TextFont { font_size: 11.0, ..default() }, TextColor(Color::WHITE)));
             });
         }
     });

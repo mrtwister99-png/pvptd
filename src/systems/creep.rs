@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use rand::Rng;
 use std::collections::HashMap;
 use crate::components::{Creep, CreepMainCircle, Health, MaxHealth, CreepHpText, CreepStatusText, SlowOutline, SlowDebuff, BurnDebuff, HpBarBg, HpBarFill, HpBarText, SentUnit, SendPanelItem, IncomeText, Knockback, Air, Enrage, EnrageFlash, Resist, Guardian, Heal, Tower, Aura, AuraBuff, ShootBack, TowerSlow, FrostOverlay, Shimmer, GuardianMsg, CheatButton, TowerAura, TowerMods};
-use crate::resources::{CreepAssets, RoundState, RoundPhase, MatchOver, WavePaused, WaveCount, Grid, PathMap, Sides, SelectedCell};
+use crate::resources::{CreepAssets, RoundState, RoundPhase, MatchOver, WavePaused, WaveCount, Grid, PathMap, Sides, SelectedCell, GameMode, TEST_GOLD, TEST_DIAMONDS};
 use crate::components::Side;
 use crate::constants::{LANE_Y, LANE_W, LANE_H, CREEP_BASE_SPEED, CREEP_GROWTH_PER_WAVE, CREEP_GROWTH_MAX_SCALE, FROST_OUTLINE_MAX_EXTRA, COLS, ROWS, LEAK_GOLD_RATIO, CELL, SPAWN_ABOVE, TOTAL_LIVES, ROUND_PAUSE_SECS, ROUND_MAX_SECS, BOSS_EVERY, ELITE_HP_MUL, BOSS_HP_MUL, LATE_ROUND, LATE_ROUND_HP_GROWTH, LEAK_NORMAL, LEAK_ELITE, LEAK_BOSS, KILL_GOLD_NORMAL, KILL_GOLD_ELITE, KILL_GOLD_BOSS, KILL_GOLD_MEGA};
 use crate::wave_def::{get_wave_def, get_unit_def, income_multiplier, is_air, enrage_for, resist_for, heal_for, aura_for, shoot_back_for, shimmer_for, tower_aura_for};
@@ -33,7 +33,7 @@ pub fn round_system(
             wave.0 += 1;
             round.phase = RoundPhase::Running;
             round.elapsed = 0.0;
-            spawn_round_wave(&mut commands, &mut meshes, &mut materials, &mut assets, wave.0);
+            spawn_round_wave(&mut commands, &mut meshes, &mut materials, &mut assets, wave.0, &Side::ALL);
         }
         RoundPhase::Running => {
             round.elapsed += time.delta_secs();
@@ -65,7 +65,7 @@ fn late_round_mul(round: u32) -> f32 {
     if round <= LATE_ROUND { 1.0 } else { LATE_ROUND_HP_GROWTH.powi((round - LATE_ROUND) as i32) }
 }
 
-fn spawn_round_wave(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut Assets<ColorMaterial>, assets: &mut CreepAssets, round: u32) {
+fn spawn_round_wave(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut Assets<ColorMaterial>, assets: &mut CreepAssets, round: u32, lanes: &[Side]) {
     let wdef = get_wave_def(round);
     // HP creepu roste s vlnou (velikost uz ne), v pozdnich kolech jeste rychleji
     let wave_scale = (1.0 + round as f32 * CREEP_GROWTH_PER_WAVE).min(CREEP_GROWTH_MAX_SCALE) * late_round_mul(round);
@@ -82,8 +82,8 @@ fn spawn_round_wave(commands: &mut Commands, meshes: &mut Assets<Mesh>, material
     lineup.push((CreepRank::Elite, elite_hp));
     if has_boss { lineup.push((CreepRank::Boss, boss_hp)); }
 
-    // automaticka vlna jde na obe lajny stejne (oba hraci maji stejne podminky)
-    for side in Side::ALL {
+    // automaticka vlna jde na obe lajny stejne (oba hraci maji stejne podminky); v testu jen na hracovu
+    for &side in lanes {
         let mut rng = rand::thread_rng();
         for (i, &(rank, hp)) in lineup.iter().enumerate() {
             let jitter = Vec2::new(rng.gen_range(-18.0..18.0), rng.gen_range(-8.0..8.0));
@@ -351,6 +351,7 @@ pub fn despawn_dead_and_count(
     mut sides: ResMut<Sides>,
     mut over: ResMut<MatchOver>,
     q_creeps: Query<(Entity, &Transform, &Health, &Creep, &Side, Option<&SentUnit>, Option<&crate::components::DeathExplosion>), With<Creep>>,
+    mode: Res<GameMode>,
 ) {
     let mut dead: Vec<(Entity, Side, bool, bool, bool, Option<(Vec2, f32, f32)>)> = Vec::new();
     let mut out: Vec<(Entity, Side, u32, Option<i32>)> = Vec::new();  // (entity, lajna, cena v zivotech, cena odeslane jednotky; None = bezny creep)
@@ -397,7 +398,7 @@ pub fn despawn_dead_and_count(
     }
     for (e, side, leak_cost, sent_cost) in out {
         commands.entity(e).despawn_recursive();
-        if over.0.is_some() { continue; } // po konci zapasu se uz nic nepocita
+        if over.0.is_some() || mode.is_test() { continue; } // po konci zapasu / v testu se uz nic nepocita
         // pretahovana o zivoty: komu creep projde, ztrati leak_cost, souper je ziska (dohromady vzdy TOTAL_LIVES)
         let loser = side;
         let winner = side.other();
@@ -444,6 +445,7 @@ pub fn send_unit_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     asset_server: Res<AssetServer>,
+    mode: Res<GameMode>,
 ) {
     for t in touches.iter() { *moved += t.delta().length(); }
     for (interaction, item) in q_items.iter() {
@@ -459,6 +461,12 @@ pub fn send_unit_system(
         let Some(kind) = kind else { continue; };
         if over.0.is_some() { continue; }
         // posilat jde jen behem kola, v pauze ne
+        // v testu kdykoli a jednotka jde na vlastni lajnu (zkouseni vezi)
+        if mode.is_test() {
+            spawn_sent_unit(&mut commands, &assets, &mut meshes, &mut materials, &asset_server, Side::Player, kind, 1.0, 1.0);
+            println!("TEST: poslana jednotka {} na vlastni lajnu", get_unit_def(kind).name);
+            continue;
+        }
         if round.phase != RoundPhase::Running { println!("Posilat jde jen behem kola"); continue; }
         let def = get_unit_def(kind);
         let st = sides.get_mut(Side::Player);
@@ -1152,4 +1160,24 @@ pub fn income_system(
     let income = &sides.get(Side::Player).income;
     let s = format!("Income in: {:.0}s (+{:.1})", income.timer.remaining_secs().ceil(), income.amount); // za kolik s prijde, v zavorce celkovy income
     for mut t in q_text.iter_mut() { if t.0 != s { t.0 = s.clone(); } }
+}
+
+// TEST rezim: neomezene penize (gold i diamanty se porad doplnuji) a tlacitko VLNA,
+// ktere na vlastni lajnu posle dalsi automatickou vlnu (kolo +1)
+pub fn test_mode_system(
+    mut commands: Commands,
+    mut sides: ResMut<Sides>,
+    mut wave: ResMut<WaveCount>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut assets: ResMut<CreepAssets>,
+    q_wave: Query<&Interaction, (Changed<Interaction>, With<crate::components::TestWaveButton>)>,
+) {
+    let st = sides.get_mut(Side::Player);
+    if st.gold != TEST_GOLD { st.gold = TEST_GOLD; }
+    if st.diamonds != TEST_DIAMONDS { st.diamonds = TEST_DIAMONDS; }
+    if q_wave.iter().any(|i| *i == Interaction::Pressed) {
+        wave.0 += 1;
+        spawn_round_wave(&mut commands, &mut meshes, &mut materials, &mut assets, wave.0, &[Side::Player]);
+    }
 }

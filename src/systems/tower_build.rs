@@ -1,7 +1,7 @@
 
 use bevy::prelude::*;
 use crate::components::{Side, SwitchViewButton, Tower, Selling, UpgradeLabel, SellLabel, RangeRing, RangeRingNext, HoverHighlight, TowerLevelText, PauseButtonUI, BuildPreview, SendToggleButton, SendPanel, TowerActionPanel, UpgradeButton, SellButton, SelectionMarker, SafeRoot, BuildTowerButton, BuildTowerPanel};
-use crate::resources::{HoverCell, SelectedCell, Sides, ViewSide, MatchOver, TowerDrag, KeyControl, WavePaused, HeldBuilding, PanelsOpen, InputPointer, SafeInsets, Deck};
+use crate::resources::{HoverCell, SelectedCell, Sides, ViewSide, MatchOver, TowerDrag, KeyControl, WavePaused, HeldBuilding, PanelsOpen, InputPointer, SafeInsets, GameMode};
 use crate::constants::{CELL, LANE_H, LANE_W, CAM_BASE_Y, tower_icon_path, SELL_SECONDS, SELL_REFUND, ROWS, COLS};
 use crate::tower_def::get_tower_def;
 use crate::utils::{grid_to_world, world_to_grid, compute_path};
@@ -223,10 +223,11 @@ pub fn selling_system(
     mut selected_cell: ResMut<SelectedCell>,
     mut q_selling: Query<(Entity, &Tower, &mut Selling, &Children)>,
     mut q_level_text: Query<&mut Text2d, With<TowerLevelText>>,
+    mode: Res<GameMode>,
 ) {
     for (ent, tower, mut selling, children) in q_selling.iter_mut() {
         selling.timer.tick(time.delta());
-        if selling.timer.finished() {
+        if selling.timer.finished() || mode.is_test() { // v testu se vez rozbije hned
             let price = sell_price(tower.invested);
             let st = sides.get_mut(tower.side);
             st.grid.blocked[tower.row][tower.col] = false;
@@ -250,7 +251,6 @@ pub fn build_button_input(
     mut sides: ResMut<Sides>,
     selected_cell: Res<SelectedCell>,
     held: Res<HeldBuilding>,
-    deck: Res<Deck>,
     asset_server: Res<AssetServer>,
     over: Res<MatchOver>,
     q_towers: Query<(Entity, &Tower, &Children, Has<Selling>)>,
@@ -265,7 +265,7 @@ pub fn build_button_input(
         if selling { return (0, 0, 0, 0.0, 0, 0, false, 10.0, Entity::PLACEHOLDER, children); }
         (t.kind, t.level + 1, t.invested, t.cooldown, t.hit_count, t.last_ability_wave, t.ability_used_match, t.dj_drop_timer, e, children)
     }) else {
-        let Some(kind) = selected_build_kind(&deck.0, held.0) else { return; };
+        let Some(kind) = selected_build_kind(&sides.get(Side::Player).deck, held.0) else { return; };
         try_build_kind(Side::Player, row, col, kind, &mut commands, &mut sides, &asset_server);
         return;
     };
@@ -315,7 +315,7 @@ pub fn build_button_input(
 
 pub fn build_choice_input_system(
     mut held: ResMut<HeldBuilding>,
-    deck: Res<Deck>,
+    sides: Res<Sides>,
     view: Res<ViewSide>,
     over: Res<MatchOver>,
     choices: Query<(&Interaction, &BuildTowerButton), Changed<Interaction>>,
@@ -323,7 +323,7 @@ pub fn build_choice_input_system(
     if view.0 != Side::Player || over.0.is_some() { return; }
     for (interaction, choice) in &choices {
         if *interaction == Interaction::Pressed {
-            held.0 = selected_build_kind(&deck.0, Some(choice.0));
+            held.0 = selected_build_kind(&sides.get(Side::Player).deck, Some(choice.0));
         }
     }
 }
@@ -464,6 +464,7 @@ pub fn sell_confirm_ui_system(
     mut q_text: Query<&mut Text, With<crate::components::SellConfirmText>>,
     q_yes: Query<&Interaction, (Changed<Interaction>, With<crate::components::SellYesButton>)>,
     q_no: Query<&Interaction, (Changed<Interaction>, With<crate::components::SellNoButton>)>,
+    mode: Res<GameMode>,
 ) {
     let tower = kc.sell_confirm.and_then(|(r, c)| q_towers.iter().find(|(_, t)| t.side == Side::Player && t.row == r && t.col == c));
     if kc.sell_confirm.is_some() && tower.is_none() { kc.sell_confirm = None; } // vez mezitim zmizela
@@ -471,7 +472,7 @@ pub fn sell_confirm_ui_system(
     for mut n in q_root.iter_mut() { let d = if show { Display::Flex } else { Display::None }; if n.display != d { n.display = d; } }
     let Some((e, t)) = tower else { return; };
     let name = crate::constants::ALL_TOWERS.iter().find(|x| x.0 == t.kind).map_or("?", |x| x.1);
-    let s = format!("Prodat {} R{} za +{}G?", name, t.level, sell_price(t.invested));
+    let s = if mode.is_test() { format!("Rozbit {} R{}?", name, t.level) } else { format!("Prodat {} R{} za +{}G?", name, t.level, sell_price(t.invested)) };
     for mut txt in q_text.iter_mut() { if txt.0 != s { txt.0 = s.clone(); } }
     if q_yes.iter().any(|i| *i == Interaction::Pressed) {
         commands.entity(e).try_insert(Selling { timer: Timer::from_seconds(SELL_SECONDS, TimerMode::Once) });
@@ -487,7 +488,6 @@ pub fn panels_display_system(
     sides: Res<Sides>,
     selected_cell: Res<SelectedCell>,
     held: Res<HeldBuilding>,
-    deck: Res<Deck>,
     q_towers: Query<(&Tower, Has<Selling>)>,
     mut q_send: Query<&mut Node, (With<SendPanel>, Without<TowerActionPanel>, Without<UpgradeButton>, Without<SellButton>)>,
     mut q_action: Query<&mut Node, (With<TowerActionPanel>, Without<SendPanel>, Without<UpgradeButton>, Without<SellButton>)>,
@@ -495,6 +495,7 @@ pub fn panels_display_system(
     mut q_sell_label: Query<&mut Text, (With<SellLabel>, Without<UpgradeLabel>)>,
     mut q_up_btn: Query<(&mut BackgroundColor, &mut Node), (With<UpgradeButton>, Without<SellButton>, Without<SendPanel>, Without<TowerActionPanel>)>,
     mut q_sell_btn: Query<(&mut BackgroundColor, &mut Node), (With<SellButton>, Without<UpgradeButton>, Without<SendPanel>, Without<TowerActionPanel>)>,
+    mode: Res<GameMode>,
 ) {
     let st = sides.get(Side::Player);
     let show = |open: bool| if open { Display::Flex } else { Display::None };
@@ -507,7 +508,7 @@ pub fn panels_display_system(
     for (_, mut n) in q_sell_btn.iter_mut() { n.display = show(tower.is_some()); }
     match tower {
         None => {
-            let kind = selected_build_kind(&deck.0, held.0);
+            let kind = selected_build_kind(&st.deck, held.0);
             let cost = kind.map(tower_build_cost);
             let up = match (kind, cost) {
                 (Some(kind), Some(cost)) => format!("POSTAVIT\n{}\n{}G", crate::constants::tower_tag(kind), cost),
@@ -530,7 +531,7 @@ pub fn panels_display_system(
             };
             for (mut bg, _) in q_up_btn.iter_mut() { if bg.0 != upgrade_color { bg.0 = upgrade_color; } }
 
-            let sell = if selling { "ZRUSIT\nPRODEJ".to_string() } else { format!("PRODAT\n+{}G\n({:.0}s)", sell_price(tower.invested), SELL_SECONDS) };
+            let sell = if mode.is_test() { "ROZBIT".to_string() } else if selling { "ZRUSIT\nPRODEJ".to_string() } else { format!("PRODAT\n+{}G\n({:.0}s)", sell_price(tower.invested), SELL_SECONDS) };
             for mut t in q_sell_label.iter_mut() { if t.0 != sell { t.0 = sell.clone(); } }
             let col = if selling { Color::srgb(0.8, 0.55, 0.1) } else { Color::srgb(0.75, 0.2, 0.15) };
             for (mut bg, _) in q_sell_btn.iter_mut() { if bg.0 != col { bg.0 = col; } }
@@ -873,7 +874,6 @@ pub fn keyboard_cursor_system(
     mut sides: ResMut<Sides>,
     mut panels: ResMut<PanelsOpen>,
     held: Res<HeldBuilding>,
-    deck: Res<Deck>,
     asset_server: Res<AssetServer>,
     view: Res<ViewSide>,
     over: Res<MatchOver>,
@@ -933,7 +933,7 @@ pub fn keyboard_cursor_system(
                     } else if tower_at(cell).is_some() {
                         kc.carry = Some(cell); // vzit vez (rezim spojovani)
                     } else {
-                        if let Some(kind) = selected_build_kind(&deck.0, held.0) {
+                        if let Some(kind) = selected_build_kind(&sides.get(Side::Player).deck, held.0) {
                             try_build_kind(Side::Player, cell.0, cell.1, kind, &mut commands, &mut sides, &asset_server);
                         }
                     }

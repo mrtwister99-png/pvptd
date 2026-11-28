@@ -213,6 +213,7 @@ pub struct Bullet {
 
 // testovaci tlacitko vlevo nahore pod income: kazde stisknuti prida +50 do income
 #[derive(Component)] pub struct CheatButton;
+#[derive(Component)] pub struct TestWaveButton; // TEST rezim: poslat dalsi vlnu na vlastni lajnu
 
 // aura creepu na VEZE v radiu (data z wave_def::tower_aura_for): upravuje strelbu vezi, stomp je periodicke omraceni
 #[derive(Component)]

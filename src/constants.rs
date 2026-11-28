@@ -88,7 +88,7 @@ pub fn tower_rank_cap(kind: u8) -> u32 {
 }
 // kratka zkratka na vez bez ikony (aby se barevne ctverecky daly rozeznat)
 pub fn tower_tag(kind: u8) -> &'static str {
-    ALL_TOWERS.iter().find(|t| t.0 == kind).map_or("?", |t| &t.1[..3])
+    ALL_TOWERS.iter().find(|t| t.0 == kind).map_or("?", |t| &t.1[..t.1.len().min(3)]) // "DJ" ma jen 2 znaky
 }
 // bot
 pub const BOT_THINK_SECS: f32 = 0.8;  // jak casto bot premysli (mensi = rychlejsi = tezsi)

@@ -19,6 +19,23 @@ impl Default for RoundState {
     }
 }
 
+// rezim zapasu vybrany v menu po HRAT: proti botovi, nebo TEST (jen vlastni lajna, neomezene penize,
+// vsechny veze, posilani creepu kdykoli na sebe, zivoty se nepocitaji)
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GameMode { #[default] VsBot, Test }
+
+impl GameMode {
+    pub fn is_test(self) -> bool { self == GameMode::Test }
+}
+
+// run podminky pro systemy, ktere bezi jen v jednom rezimu
+pub fn in_test_mode(mode: Res<GameMode>) -> bool { mode.is_test() }
+pub fn not_test_mode(mode: Res<GameMode>) -> bool { !mode.is_test() }
+
+// v testu se gold i diamanty pořád doplňují na tuhle hodnotu
+pub const TEST_GOLD: i32 = 1_000_000;
+pub const TEST_DIAMONDS: i32 = 999;
+
 // konec zapasu: Some(vitez), jakmile nekdo prijde o vsechny zivoty
 #[derive(Resource, Default)]
 pub struct MatchOver(pub Option<crate::components::Side>);
