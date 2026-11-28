@@ -37,7 +37,7 @@ pub const ROUND_MAX_SECS: f32 = 60.0;    // kolo skonci nejpozdeji po tolika sek
 pub const BOSS_EVERY: u32 = 5;           // kazde 5. kolo prijde i boss
 pub const ELITE_HP_MUL: f32 = 3.0;       // vetsi creep ma tolikrat vic HP nez normalni
 pub const BOSS_HP_MUL: f32 = 8.0;        // boss (kdyz vlna nema vlastni HP bosse) = HP normalniho x tolik
-pub const LATE_ROUND: u32 = 20;          // od tohoto kola HP roste navic rychleji (pojistka ~15 min)
+pub const LATE_ROUND: u32 = 30;          // po tomto kole HP roste navic rychleji (pojistka: zapas skonci kratce po 30. vlne)
 pub const LATE_ROUND_HP_GROWTH: f32 = 1.15; // ...o 15 % za kazde dalsi kolo
 // kolik zivotu stoji pruchod (souper je ziska)
 pub const LEAK_NORMAL: u32 = 1;

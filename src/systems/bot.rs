@@ -98,7 +98,8 @@ pub fn bot_system(
         // 2) stavba: dalsi volne policko z planu; kdyz je plan plny, kterekoli volne policko. Nikdy nezazdi cestu.
         //    Kdyz uz ma dost vezi, obcas stavbu vynecha a posle jednotku (investice do income).
         let enough = mine.len() >= want;
-        let invest = enough && round.phase == RoundPhase::Running && rand::thread_rng().gen_bool(0.3);
+        // investice do income: od 3. kola i kdyz jeste nema dost vezi (jinak mu ekonomika zustane na zakladnim income a pozdni vlny ho rozdrti)
+        let invest = round.phase == RoundPhase::Running && (enough || wave.0 >= 3) && rand::thread_rng().gen_bool(if enough { 0.3 } else { 0.2 });
         let st = sides.get(me);
         let next_kind = next_affordable_tower(st);
         let cost = next_kind.map(tower_build_cost).unwrap_or(i32::MAX);
@@ -119,13 +120,14 @@ pub fn bot_system(
         // pri investici az do poloviny goldu
         let next_kind = next_affordable_tower(st);
         let cost = next_kind.map(tower_build_cost).unwrap_or(i32::MAX);
-        let budget = if invest { st.gold / 2 } else if enough { st.gold - cost } else { st.gold - 2 * cost };
+        // saturating: kdyz nema na zadnou vez, je cost = i32::MAX a obycejne odecitani by preteklo
+        let budget = if invest { st.gold / 2 } else if enough { st.gold.saturating_sub(cost) } else { st.gold.saturating_sub(cost.saturating_mul(2)) };
         if budget <= 0 { continue; }
         let pick = (1..=UNIT_COUNT).filter(|&k| get_unit_def(k).cost <= budget).max_by_key(|&k| get_unit_def(k).cost);
         let Some(kind) = pick else { continue; };
         let def = get_unit_def(kind);
         st.gold -= def.cost;
-        let idx = (kind as usize).min(31);
+        let idx = (kind as usize).min(63);
         st.income.amount += def.income as f32 * income_multiplier(st.income.sent[idx]);
         st.income.sent[idx] += 1;
         spawn_sent_unit(&mut commands, &assets, &mut meshes, &mut materials, &asset_server, me.other(), kind, 1.0, 1.0);

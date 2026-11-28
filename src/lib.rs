@@ -205,7 +205,12 @@ fn dev_screenshot_system(
 
 // test na PC: s promennou prostredi AUTOPLAY=1 se preskoci menu a rovnou zacne zapas
 // (AUTOPLAY=test = rovnou TEST rezim)
-fn autoplay_system(mut next: ResMut<NextState<AppState>>, mut mode: ResMut<GameMode>) {
+// GAME_SPEED=4 = hra bezi 4x rychleji (testy ekonomiky bot proti botovi)
+fn autoplay_system(mut next: ResMut<NextState<AppState>>, mut mode: ResMut<GameMode>, mut time: ResMut<Time<Virtual>>) {
+    if let Some(speed) = std::env::var("GAME_SPEED").ok().and_then(|v| v.parse::<f32>().ok()) {
+        time.set_relative_speed(speed);
+        time.set_max_delta(std::time::Duration::from_millis(1000));
+    }
     let Ok(v) = std::env::var("AUTOPLAY") else { return; };
     if v == "test" { *mode = GameMode::Test; }
     next.set(AppState::Playing);
@@ -421,7 +426,7 @@ fn setup(
         display: Display::None,
         ..default()
     }, SendPanel)).with_children(|p| {
-        for kind in 1..=wave_def::UNIT_COUNT {
+        for kind in wave_def::units_by_cost() { // od nejlevnejsi (nove jednotky 31+ se zaradi podle ceny)
             let def = wave_def::get_unit_def(kind);
             p.spawn((
                 Button,

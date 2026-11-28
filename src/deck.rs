@@ -12,6 +12,21 @@ use crate::tower_def::get_tower_def;
 #[derive(Component)] pub struct DeckCounterText;
 #[derive(Component)] pub struct DeckInfoText;
 
+// kolik Basic a kolik Special vezi je v balicku
+pub fn deck_counts(deck: &[u8]) -> (usize, usize) {
+    let special = deck.iter().filter(|&&kind| crate::constants::is_special_tower(kind)).count();
+    (deck.len() - special, special)
+}
+
+// balicek je hotovy, jen kdyz ma presne 4 Basic a 2 Special (zadna vez dvakrat)
+pub fn deck_is_complete(deck: &[u8]) -> bool {
+    let mut unique = deck.to_vec();
+    unique.sort_unstable();
+    unique.dedup();
+    unique.len() == deck.len()
+        && deck_counts(deck) == (crate::constants::DECK_BASIC_SIZE, crate::constants::DECK_SPECIAL_SIZE)
+}
+
 // popis veze pro vyber balicku: co dela + cisla na R1 a R7
 fn deck_info(kind: u8) -> String {
     let name = ALL_TOWERS.iter().find(|t| t.0 == kind).map_or("?", |t| t.1);
@@ -121,12 +136,7 @@ pub fn deck_input_system(
             if count < limit { deck.0.push(b.0); }
         }
     }
-    let basic = deck.0.iter().filter(|&&kind| !crate::constants::is_special_tower(kind)).count();
-    let special = deck.0.iter().filter(|&&kind| crate::constants::is_special_tower(kind)).count();
-    if q_done.iter().any(|i| *i == Interaction::Pressed)
-        && basic == crate::constants::DECK_BASIC_SIZE
-        && special == crate::constants::DECK_SPECIAL_SIZE
-    {
+    if q_done.iter().any(|i| *i == Interaction::Pressed) && deck_is_complete(&deck.0) {
         next.set(AppState::Menu);
     }
 }
@@ -143,9 +153,8 @@ pub fn deck_display_system(
         border.0 = if on { Color::srgb(1.0, 0.85, 0.2) } else { Color::NONE };
         bg.0 = if on { Color::srgb(0.28, 0.26, 0.15) } else { Color::srgb(0.18, 0.18, 0.2) };
     }
-    let basic = deck.0.iter().filter(|&&kind| !crate::constants::is_special_tower(kind)).count();
-    let special = deck.0.iter().filter(|&&kind| crate::constants::is_special_tower(kind)).count();
-    let full = basic == crate::constants::DECK_BASIC_SIZE && special == crate::constants::DECK_SPECIAL_SIZE;
+    let (basic, special) = deck_counts(&deck.0);
+    let full = deck_is_complete(&deck.0);
     for mut bg in q_done.iter_mut() { bg.0 = if full { Color::srgb(0.15, 0.6, 0.2) } else { Color::srgb(0.1, 0.2, 0.12) }; }
     let s = format!("Vybrano {}/{} Basic, {}/{} Special", basic, crate::constants::DECK_BASIC_SIZE, special, crate::constants::DECK_SPECIAL_SIZE);
     for mut t in q_text.iter_mut() { if t.0 != s { t.0 = s.clone(); } }
@@ -154,6 +163,20 @@ pub fn deck_display_system(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deck_must_have_exactly_four_basic_and_two_special() {
+        assert!(deck_is_complete(&[1, 2, 3, 4, 16, 17]));
+        assert!(!deck_is_complete(&[1, 2, 3, 16, 17]));        // jen 3 Basic
+        assert!(!deck_is_complete(&[1, 2, 3, 4, 5, 16]));      // 5 Basic + 1 Special
+        assert!(!deck_is_complete(&[1, 2, 3, 16, 17, 18]));    // 3 Basic + 3 Special
+        assert!(!deck_is_complete(&[1, 1, 3, 4, 16, 17]));     // stejna vez dvakrat
+    }
+
+    #[test]
+    fn default_deck_is_valid() {
+        assert!(deck_is_complete(&crate::resources::Deck::default().0));
+    }
 
     #[test]
     fn special_tower_info_shows_its_actual_top_rank_and_ability() {

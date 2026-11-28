@@ -44,7 +44,7 @@ pub struct WavePaused(pub bool);
 #[derive(Resource)]
 pub struct WaveCount(pub u32);
 // income: kazdych 7s pripise `amount` gold (zvysuje se odesilanim jednotek)
-pub struct Income { pub amount: f32, pub carry: f32, pub sent: [u32; 32], pub timer: Timer } // amount = gold za tik, carry = zbytek za desetinnou carkou, sent = kolik jednotek uz odeslano
+pub struct Income { pub amount: f32, pub carry: f32, pub sent: [u32; 64], pub timer: Timer } // amount = gold za tik, carry = zbytek za desetinnou carkou, sent = kolik jednotek uz odeslano
 
 // stav jedne strany (hrac / bot): vlastni gold, income, zivoty a bludiste
 pub struct SideState {
@@ -67,7 +67,7 @@ impl SideState {
             diamonds: 0,
             gold_boost_timer: 0.0,
             doge_moon_used: false,
-            income: Income { amount: crate::constants::BASE_INCOME, carry: 0.0, sent: [0; 32], timer: Timer::from_seconds(7.0, TimerMode::Repeating) },
+            income: Income { amount: crate::constants::BASE_INCOME, carry: 0.0, sent: [0; 64], timer: Timer::from_seconds(7.0, TimerMode::Repeating) },
             lives: crate::constants::START_LIVES,
             grid: Grid { blocked: [[false; COLS]; ROWS] },
             path: PathMap { dist: [[None; COLS]; ROWS] },

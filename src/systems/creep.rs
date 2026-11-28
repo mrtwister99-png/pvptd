@@ -34,6 +34,12 @@ pub fn round_system(
             round.phase = RoundPhase::Running;
             round.elapsed = 0.0;
             spawn_round_wave(&mut commands, &mut meshes, &mut materials, &mut assets, wave.0, &Side::ALL);
+            // log ekonomiky na zacatku kola (ladeni): gold, income a hodnota vezi kazde strany
+            for side in Side::ALL {
+                let st = sides.get(side);
+                let invested: i32 = towers.iter().filter(|t| t.side == side).map(|t| t.invested).sum();
+                println!("EKONOMIKA kolo {} {:?}: gold {} income {:.0} veze {}G zivoty {}", wave.0, side, st.gold, st.income.amount, invested, st.lives);
+            }
         }
         RoundPhase::Running => {
             round.elapsed += time.delta_secs();
@@ -405,7 +411,8 @@ pub fn despawn_dead_and_count(
         let lost = leak_cost.min(sides.get(loser).lives);
         sides.get_mut(loser).lives -= lost;
         sides.get_mut(winner).lives = (sides.get(winner).lives + lost).min(TOTAL_LIVES);
-        if sides.get(loser).lives == 0 {
+        // SIM_ENDLESS=1 (test bot proti botovi): zapas neskonci, aby slo videt, do ktereho kola obrana stiha
+        if sides.get(loser).lives == 0 && std::env::var("SIM_ENDLESS").is_err() {
             over.0 = Some(winner);
             println!("KONEC ZAPASU - vitez {:?}", winner);
         }
@@ -473,7 +480,7 @@ pub fn send_unit_system(
         if st.gold < def.cost { println!("Malo gold na {}: potreba {} mas {}", def.name, def.cost, st.gold); continue; }
         st.gold -= def.cost;
         let income = &mut st.income;
-        let idx = (kind as usize).min(31); // pocitadlo odeslani zvlast pro kazdou jednotku
+        let idx = (kind as usize).min(63); // pocitadlo odeslani zvlast pro kazdou jednotku
         income.amount += def.income as f32 * income_multiplier(income.sent[idx]); // scaling podle poctu odeslani TETO jednotky (wave_def::INCOME_TIERS)
         income.sent[idx] += 1;
         // poslana jednotka jde na lajnu SOUPERE
